@@ -1,5 +1,7 @@
 package com.voidnullvalue.parcelpal.model;
 
+import com.voidnullvalue.parcelpal.util.StatusNormalizer;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -15,9 +17,14 @@ public final class TrackingResult {
     public final List<String> linkedTrackingNumbers = new ArrayList<>();
 
     public boolean isUseful() {
-        if (!events.isEmpty()) return true;
+        for (TrackingEvent event : events) {
+            if (!"UNKNOWN".equals(StatusNormalizer.normalize(event.description))) return true;
+        }
         String status = statusText == null ? "" : statusText.trim();
-        return !status.isEmpty() && !"Unknown".equalsIgnoreCase(status) && !"Not found".equalsIgnoreCase(status);
+        return !"UNKNOWN".equalsIgnoreCase(normalizedStatus) &&
+                !status.isEmpty() &&
+                !"Unknown".equalsIgnoreCase(status) &&
+                !"Not found".equalsIgnoreCase(status);
     }
 
     public long newestEventTime() {
