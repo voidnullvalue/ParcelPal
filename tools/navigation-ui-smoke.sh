@@ -9,19 +9,30 @@ XML="/tmp/parcelpal-window.xml"
 
 adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null
 adb shell pm clear "$PACKAGE" >/dev/null
-adb shell am start -W -n "$PACKAGE/$ACTIVITY" >/dev/null
-sleep 3
+adb logcat -c
+adb shell am start -W -n "$PACKAGE/$ACTIVITY"
+sleep 5
 
 pull_ui() {
   adb shell uiautomator dump /sdcard/parcelpal-window.xml >/dev/null
   adb pull /sdcard/parcelpal-window.xml "$XML" >/dev/null
 }
 
+print_diagnostics() {
+  echo "=== FOREGROUND ACTIVITY ==="
+  adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity|ResumedActivity' | head -n 10 || true
+  echo "=== WINDOW HIERARCHY ==="
+  cat "$XML" || true
+  echo
+  echo "=== PARCELPAL LOGCAT ==="
+  adb logcat -d -v brief | grep -i -A20 -B10 'parcelpal\|FATAL EXCEPTION' | tail -n 300 || true
+}
+
 node_center() {
   local attribute="$1"
   local value="$2"
   pull_ui
-  python3 - "$XML" "$attribute" "$value" <<'PY'
+  python3 - "$XML" "$attribute" "$value" <<'PY' || {
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -39,6 +50,9 @@ for node in root.iter("node"):
         raise SystemExit(0)
 raise SystemExit(f"UI node not found: {attribute}={expected}")
 PY
+    print_diagnostics >&2
+    return 1
+  }
 }
 
 tap_node() {
@@ -65,7 +79,8 @@ assert_activity() {
   current="$(current_activity)"
   echo "Current activity: $current"
   [[ "$current" == *"$expected"* ]] || {
-    adb shell dumpsys activity activities | head -n 120
+    pull_ui
+    print_diagnostics
     exit 1
   }
 }
