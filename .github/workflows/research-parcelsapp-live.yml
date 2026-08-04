@@ -14,7 +14,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
@@ -22,19 +22,24 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Playwright
-        run: |
-          npm install --no-save playwright@1.54.2
-          npx playwright install --with-deps chromium
+      - name: Install browser driver
+        run: npm install --no-save playwright-core@1.54.2
 
       - name: Capture and verify browser protocol
         run: |
           cat > probe.mjs <<'EOF'
           import fs from 'node:fs';
-          import { chromium } from 'playwright';
+          import { chromium } from 'playwright-core';
 
           const tracking = ['92055902', '6733880000', '68080083'].join('');
-          const browser = await chromium.launch({ headless: true });
+          const executablePath = fs.existsSync('/usr/bin/google-chrome')
+            ? '/usr/bin/google-chrome'
+            : '/usr/bin/chromium-browser';
+          const browser = await chromium.launch({
+            headless: true,
+            executablePath,
+            args: ['--no-sandbox', '--disable-dev-shm-usage']
+          });
           const context = await browser.newContext({
             viewport: { width: 412, height: 915 },
             locale: 'en-US',
