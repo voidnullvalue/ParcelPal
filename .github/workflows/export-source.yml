@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/navigation-autodetect-branding
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
