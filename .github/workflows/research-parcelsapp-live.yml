@@ -28,17 +28,18 @@ jobs:
           python -m pip install 'camoufox[geoip]'
           python -m camoufox fetch
 
-      - name: Verify USPS live tracking
+      - name: Verify exact production extraction script against USPS
         run: |
           cat > probe.py <<'EOF'
           import asyncio
           import json
-          import re
+          from pathlib import Path
           from urllib.parse import urlparse
           from camoufox.async_api import AsyncCamoufox
 
           TRACKING = ''.join(('92055902', '6733880000', '68080083'))
           URL = f'https://tools.usps.com/go/TrackConfirmAction?tLabels={TRACKING}'
+          SCRIPT = Path('app/src/main/assets/usps_extract.js').read_text(encoding='utf-8')
 
           def allowed(url: str) -> bool:
               parsed = urlparse(url)
@@ -67,55 +68,34 @@ jobs:
                   await context.route('**/*', route_request)
                   page = await context.new_page()
                   await page.goto(URL, wait_until='domcontentloaded', timeout=60000)
-                  try:
-                      await page.wait_for_selector(
-                          '.tb-step, .update-banner-wrapper, .banner-content, .tb-status',
-                          timeout=40000,
-                      )
-                  except Exception:
-                      pass
-                  await asyncio.sleep(3)
 
-                  title = await page.title()
-                  body = await page.locator('body').inner_text()
-                  status_nodes = await page.locator('.tb-status').all_inner_texts()
-                  step_nodes = await page.locator('.tb-step').all_inner_texts()
-                  detail_nodes = await page.locator('.tb-status-detail').all_inner_texts()
-                  banner_nodes = await page.locator(
-                      '.latest-update-banner-wrapper, .update-banner-wrapper, .banner-content'
-                  ).all_inner_texts()
-
-                  challenge = any(marker in title.lower() for marker in (
-                      'access denied', 'please verify', 'are you a robot', 'captcha', 'blocked', 'just a moment'
-                  ))
-                  credible = bool(status_nodes or step_nodes or detail_nodes or banner_nodes)
+                  extracted = None
+                  for _ in range(80):
+                      raw = await page.evaluate(SCRIPT)
+                      extracted = json.loads(raw)
+                      if extracted.get('ready') or extracted.get('challenge'):
+                          break
+                      await asyncio.sleep(0.5)
 
                   output = {
                       'httpUrl': page.url.replace(TRACKING, '<tracking>'),
-                      'title': title,
-                      'challenge': challenge,
-                      'credible': credible,
-                      'statusNodeCount': len(status_nodes),
-                      'stepNodeCount': len(step_nodes),
-                      'detailNodeCount': len(detail_nodes),
-                      'bannerNodeCount': len(banner_nodes),
-                      'bodyHasKnownStatusLanguage': bool(re.search(
-                          r'delivered|moving through network|in transit|pre-shipment|awaiting item|tracking history',
-                          body,
-                          re.I,
-                      )),
-                      'bodyLength': len(body),
+                      'version': extracted.get('version') if extracted else None,
+                      'ready': bool(extracted and extracted.get('ready')),
+                      'challenge': bool(extracted and extracted.get('challenge')),
+                      'statusPresent': bool(extracted and extracted.get('status')),
+                      'stepCount': len(extracted.get('steps', [])) if extracted else 0,
+                      'detailCount': len(extracted.get('details', [])) if extracted else 0,
+                      'bannerCount': len(extracted.get('banners', [])) if extracted else 0,
                       'allowedHosts': sorted(allowed_hosts),
                       'blockedHosts': sorted(blocked_hosts),
                   }
-                  with open('usps-live-verification.json', 'w', encoding='utf-8') as handle:
-                      json.dump(output, handle, indent=2)
+                  Path('usps-live-verification.json').write_text(json.dumps(output, indent=2), encoding='utf-8')
                   print(json.dumps(output, indent=2))
 
-                  if challenge:
-                      raise RuntimeError('USPS returned a bot challenge')
-                  if not credible:
-                      raise RuntimeError('USPS page did not expose tracking status nodes with third-party requests blocked')
+                  if output['challenge']:
+                      raise RuntimeError('USPS returned a challenge')
+                  if not output['ready'] or not output['statusPresent'] or output['stepCount'] < 1:
+                      raise RuntimeError('Production extraction script did not return usable live USPS data')
 
           asyncio.run(main())
           EOF
