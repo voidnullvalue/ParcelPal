@@ -32,10 +32,13 @@ jobs:
         run: |
           cat > probe.mjs <<'EOF'
           import fs from 'node:fs';
+          import path from 'node:path';
           import { chromium } from 'playwright';
 
           const sampleTracking = '9400111206213785678901';
           const records = [];
+          fs.mkdirSync('probe-output', { recursive: true });
+
           const browser = await chromium.launch({ headless: true });
           const context = await browser.newContext({
             locale: 'en-US',
@@ -96,6 +99,15 @@ jobs:
           try {
             await page.goto('https://parcelsapp.com/en', { waitUntil: 'domcontentloaded', timeout: 60000 });
             await page.waitForTimeout(3000);
+
+            const scripts = await page.locator('script[src]').evaluateAll(elements => elements.map(element => element.src));
+            for (const src of scripts) {
+              if (!src.includes('dvow0vltefbxy.cloudfront.net') || !src.includes('/packs/js/')) continue;
+              const response = await context.request.get(src);
+              if (!response.ok()) continue;
+              fs.writeFileSync(path.join('probe-output', path.basename(new URL(src).pathname)), await response.body());
+            }
+
             const input = page.locator('input').first();
             await input.fill(sampleTracking);
             await input.press('Enter');
@@ -104,7 +116,6 @@ jobs:
             error = String(caught);
           }
 
-          fs.mkdirSync('probe-output', { recursive: true });
           await page.screenshot({ path: 'probe-output/final.png', fullPage: true }).catch(() => {});
           fs.writeFileSync('probe-output/final.html', await page.content());
           fs.writeFileSync('probe-output/protocol.json', JSON.stringify({
