@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - research/parcelsapp-protocol-v2
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -63,13 +66,14 @@ jobs:
           });
 
           await page.goto('https://parcelsapp.com/en', { waitUntil: 'domcontentloaded', timeout: 60000 });
-          const input = page.locator('input').filter({ has: page.locator('') }).first();
           const trackingInput = page.locator('input[placeholder*="tracking" i], input[name*="tracking" i], input[type="search"], input[type="text"]').first();
+          await trackingInput.waitFor({ state: 'visible', timeout: 30000 });
           await trackingInput.fill(tracking);
           const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /track/i }).first();
+          await submit.waitFor({ state: 'visible', timeout: 30000 });
           await submit.click();
 
-          for (let i = 0; i < 60 && !capturedResponse; i++) await page.waitForTimeout(500);
+          for (let i = 0; i < 90 && !capturedResponse; i++) await page.waitForTimeout(500);
           if (!capturedRequest) throw new Error('No /api/v2/parcels request was observed');
           if (!capturedResponse) throw new Error('No /api/v2/parcels response was observed');
 
