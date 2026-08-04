@@ -1,6 +1,8 @@
 package com.voidnullvalue.parcelpal.data;
 
 import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 
 import com.voidnullvalue.parcelpal.model.Shipment;
 import com.voidnullvalue.parcelpal.model.TrackingEvent;
@@ -60,6 +62,10 @@ public final class ShipmentRepository {
         Shipment shipment = database.getShipment(shipmentId);
         if (shipment == null) return RefreshOutcome.failure("Package no longer exists");
 
+        purgeLegacyFalsePositives(shipmentId);
+        shipment = database.getShipment(shipmentId);
+        if (shipment == null) return RefreshOutcome.failure("Package no longer exists");
+
         String previousStatus = shipment.statusText;
         String previousNormalized = shipment.normalizedStatus;
         List<String> attempts = new ArrayList<>();
@@ -93,7 +99,6 @@ public final class ShipmentRepository {
                     result.estimatedDelivery, result.sourceId, result.sourceName, "");
             database.replaceEventsForTracking(shipmentId, leg.trackingNumber,
                     safeCarrier(result.carrierName, target.carrierHint), result.sourceName, result.events);
-            database.upsertDiscoveredLegs(shipmentId, shipment.trackingNumber, result.linkedTrackingNumbers);
             successes.add(new TargetSuccess(leg.trackingNumber, result));
         }
 
@@ -114,6 +119,39 @@ public final class ShipmentRepository {
         boolean changed = !safe(previousStatus).equals(safe(result.statusText)) ||
                 !safe(previousNormalized).equals(safe(result.normalizedStatus));
         return RefreshOutcome.success(result, changed, errors);
+    }
+
+    private void purgeLegacyFalsePositives(long shipmentId) {
+        SQLiteDatabase db = database.getWritableDatabase();
+        List<String> staleLegs = new ArrayList<>();
+        db.beginTransaction();
+        try {
+            try (Cursor cursor = db.query("tracking_legs", new String[]{"tracking_number"},
+                    "shipment_id=? AND normalized_status='UNKNOWN'",
+                    new String[]{Long.toString(shipmentId)}, null, null, null)) {
+                while (cursor.moveToNext()) staleLegs.add(cursor.getString(0));
+            }
+
+            for (String trackingNumber : staleLegs) {
+                db.delete("tracking_events", "shipment_id=? AND tracking_number=?",
+                        new String[]{Long.toString(shipmentId), trackingNumber});
+            }
+            db.delete("tracking_legs", "shipment_id=? AND normalized_status='UNKNOWN'",
+                    new String[]{Long.toString(shipmentId)});
+
+            String genericLabels = "'delivery time','estimated delivery','expected delivery','delivery date'," +
+                    "'shipment tracking','tracking details','tracking information','package status'," +
+                    "'shipment status','delivery status','status'";
+            db.execSQL("DELETE FROM tracking_events WHERE shipment_id=? AND lower(trim(description)) IN (" + genericLabels + ")",
+                    new Object[]{shipmentId});
+            db.execSQL("UPDATE shipments SET normalized_status='UNKNOWN', status_text='Unknown', " +
+                            "estimated_delivery='', source_id='', source_name='' " +
+                            "WHERE id=? AND lower(trim(status_text)) IN (" + genericLabels + ")",
+                    new Object[]{shipmentId});
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
     }
 
     private TargetFetch fetchTarget(TrackingTarget target, List<String> attempts, List<String> errors) {
