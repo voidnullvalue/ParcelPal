@@ -22,112 +22,108 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Playwright
+      - name: Probe public mobile HTTP flow
         run: |
-          npm init -y
-          npm install playwright@1.54.2
-          npx playwright install --with-deps chromium
-
-      - name: Capture public browser requests
-        run: |
-          cat > probe.mjs <<'EOF'
+          cat > probe-direct.mjs <<'EOF'
           import fs from 'node:fs';
-          import path from 'node:path';
-          import { chromium } from 'playwright';
 
-          const sampleTracking = '9400111206213785678901';
-          const records = [];
-          fs.mkdirSync('probe-output', { recursive: true });
+          const tracking = '9400111206213785678901';
+          const origin = 'https://parcelsapp.com';
+          const userAgent = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
 
-          const browser = await chromium.launch({ headless: true });
-          const context = await browser.newContext({
-            locale: 'en-US',
-            timezoneId: 'America/Chicago',
-            userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
-          });
-          const page = await context.newPage();
-
-          const relevantHost = (url) => {
-            try {
-              const host = new URL(url).hostname;
-              return host === 'parcelsapp.com' || host.endsWith('.parcelsapp.com');
-            } catch {
-              return false;
+          function obfuscate(value) {
+            const encoded = encodeURIComponent(value);
+            let output = '';
+            for (const character of encoded) {
+              const code = character.charCodeAt(0);
+              output += code <= 126 ? String.fromCharCode((code + 76) % 126) : character;
             }
-          };
-
-          page.on('request', request => {
-            if (!relevantHost(request.url())) return;
-            const headers = { ...request.headers() };
-            delete headers.cookie;
-            delete headers.authorization;
-            records.push({
-              type: 'request',
-              resourceType: request.resourceType(),
-              method: request.method(),
-              url: request.url(),
-              headers,
-              postData: request.postData() || null
-            });
-          });
-
-          page.on('response', async response => {
-            if (!relevantHost(response.url())) return;
-            const request = response.request();
-            const contentType = response.headers()['content-type'] || '';
-            const record = {
-              type: 'response',
-              resourceType: request.resourceType(),
-              method: request.method(),
-              url: response.url(),
-              status: response.status(),
-              contentType
-            };
-            if ((request.resourceType() === 'xhr' || request.resourceType() === 'fetch') &&
-                /json|text|javascript/.test(contentType)) {
-              try {
-                const body = await response.text();
-                record.body = body.length > 250000 ? body.slice(0, 250000) : body;
-              } catch (error) {
-                record.bodyError = String(error);
-              }
-            }
-            records.push(record);
-          });
-
-          let error = null;
-          try {
-            await page.goto('https://parcelsapp.com/en', { waitUntil: 'domcontentloaded', timeout: 60000 });
-            await page.waitForTimeout(3000);
-
-            const scripts = await page.locator('script[src]').evaluateAll(elements => elements.map(element => element.src));
-            for (const src of scripts) {
-              if (!src.includes('dvow0vltefbxy.cloudfront.net') || !src.includes('/packs/js/')) continue;
-              const response = await context.request.get(src);
-              if (!response.ok()) continue;
-              fs.writeFileSync(path.join('probe-output', path.basename(new URL(src).pathname)), await response.body());
-            }
-
-            const input = page.locator('input').first();
-            await input.fill(sampleTracking);
-            await input.press('Enter');
-            await page.waitForTimeout(30000);
-          } catch (caught) {
-            error = String(caught);
+            return encodeURIComponent(output);
           }
 
-          await page.screenshot({ path: 'probe-output/final.png', fullPage: true }).catch(() => {});
-          fs.writeFileSync('probe-output/final.html', await page.content());
-          fs.writeFileSync('probe-output/protocol.json', JSON.stringify({
-            sampleTracking,
-            finalUrl: page.url(),
-            title: await page.title(),
-            error,
-            records
-          }, null, 2));
-          await browser.close();
+          function cookiesFrom(headers) {
+            const values = typeof headers.getSetCookie === 'function'
+              ? headers.getSetCookie()
+              : [headers.get('set-cookie')].filter(Boolean);
+            return values.map(value => value.split(';', 1)[0]).join('; ');
+          }
+
+          const page = await fetch(`${origin}/en`, {
+            headers: {
+              'User-Agent': userAgent,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.8',
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
+            },
+            redirect: 'follow'
+          });
+          const html = await page.text();
+          const csrf = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i)?.[1] ||
+                       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']/i)?.[1] || '';
+          const cookie = cookiesFrom(page.headers);
+
+          const variants = [
+            { name: 'minimal', fields: {} },
+            { name: 'mobile-no-fingerprint', fields: { platform: 'web-android', wd: 'false', c: 'false', p: '0', l: '1' } },
+            {
+              name: 'mobile-honest-fingerprint',
+              fields: {
+                platform: 'web-android', wd: 'false', c: 'false', p: '0', l: '1',
+                se: '412x915,412x915,412x915,no,Linux armv8l,Gecko,Mozilla,Netscape,Google Inc.,true,no,Qualcomm,Adreno,true,true,cGFyY2Vsc2FwcC5jb20=,,0,0,0'
+              }
+            }
+          ];
+
+          const output = {
+            pageStatus: page.status,
+            csrfPresent: Boolean(csrf),
+            cookieNames: cookie.split('; ').map(value => value.split('=', 1)[0]).filter(Boolean),
+            trackingIdEncoded: obfuscate(tracking),
+            variants: []
+          };
+
+          for (const variant of variants) {
+            const body = new URLSearchParams({
+              trackingId: obfuscate(tracking),
+              carrier: 'Auto-Detect',
+              language: 'en',
+              country: 'Unknown',
+              ...variant.fields
+            });
+            const response = await fetch(`${origin}/api/v2/parcels`, {
+              method: 'POST',
+              headers: {
+                'User-Agent': userAgent,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Accept-Language': 'en-US,en;q=0.8',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-Token': csrf,
+                'Origin': origin,
+                'Referer': `${origin}/en`,
+                'Cookie': cookie,
+                'DNT': '1',
+                'Sec-GPC': '1'
+              },
+              body,
+              redirect: 'manual'
+            });
+            const text = await response.text();
+            output.variants.push({
+              name: variant.name,
+              status: response.status,
+              contentType: response.headers.get('content-type'),
+              body: text.slice(0, 250000)
+            });
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+
+          fs.mkdirSync('probe-output', { recursive: true });
+          fs.writeFileSync('probe-output/direct-protocol.json', JSON.stringify(output, null, 2));
+          console.log(JSON.stringify(output, null, 2));
           EOF
-          node probe.mjs
+          node probe-direct.mjs
 
       - name: Upload protocol capture
         if: always()
