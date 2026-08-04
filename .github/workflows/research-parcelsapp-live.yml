@@ -1,4 +1,4 @@
-name: Research ParcelsApp live protocol
+name: Research USPS live tracking protocol
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
       - name: Install browser driver
         run: npm install --no-save playwright-core@1.54.2
 
-      - name: Capture and verify browser protocol
+      - name: Capture USPS browser protocol
         run: |
           cat > probe.mjs <<'EOF'
           import fs from 'node:fs';
@@ -47,106 +47,89 @@ jobs:
             isMobile: true,
             hasTouch: true
           });
+          const page = await context.newPage();
+          const captures = [];
 
-          function sanitizeRequest(request) {
-            if (!request) return null;
-            const params = new URLSearchParams(request.postData || '');
-            const fields = {};
-            for (const [key, value] of params.entries()) {
-              fields[key] = key.toLowerCase().includes('tracking') ? '<redacted>' : value;
-            }
-            return {
-              method: request.method,
-              url: request.url,
-              fieldNames: [...params.keys()],
-              fields
-            };
+          function redact(text) {
+            return String(text || '')
+              .split(tracking).join('<tracking>')
+              .replace(/\b\d{5}(?:-\d{4})?\b/g, '<postal-code>');
           }
 
-          async function probe(name, url) {
-            const page = await context.newPage();
-            let capturedRequest = null;
-            let capturedResponse = null;
-            page.on('request', request => {
-              if (request.url().includes('/api/v2/parcels')) {
-                capturedRequest = {
-                  method: request.method(),
-                  url: request.url(),
-                  postData: request.postData() || ''
-                };
-              }
+          page.on('response', async response => {
+            const request = response.request();
+            const type = request.resourceType();
+            const url = response.url();
+            if (!/usps\.com/i.test(url)) return;
+            if (!['xhr', 'fetch', 'document'].includes(type)) return;
+            const contentType = response.headers()['content-type'] || '';
+            let body = '';
+            try {
+              if (/json|text|html|javascript/i.test(contentType)) body = await response.text();
+            } catch {}
+            captures.push({
+              url: redact(url),
+              method: request.method(),
+              resourceType: type,
+              status: response.status(),
+              contentType,
+              requestBody: redact(request.postData() || '').slice(0, 20000),
+              responseBody: redact(body).slice(0, 500000)
             });
-            page.on('response', async response => {
-              if (response.url().includes('/api/v2/parcels')) {
-                capturedResponse = {
-                  status: response.status(),
-                  contentType: response.headers()['content-type'] || '',
-                  body: await response.text()
-                };
-              }
-            });
+          });
 
-            let uiError = null;
+          const urls = [
+            `https://tools.usps.com/go/TrackConfirmAction_input?origTrackNum=${encodeURIComponent(tracking)}`,
+            `https://tools.usps.com/go/TrackConfirmAction?tRef=fullpage&tLc=2&text28777=&tLabels=${encodeURIComponent(tracking)}`
+          ];
+
+          let loaded = false;
+          let bodyText = '';
+          let lastError = null;
+          for (const url of urls) {
             try {
               await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-              const trackingInput = page.locator('input[placeholder*="tracking" i], input[name*="tracking" i], input[type="search"], input[type="text"]').first();
-              await trackingInput.waitFor({ state: 'visible', timeout: 30000 });
-              await trackingInput.fill(tracking);
-              const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /track/i }).first();
-              await submit.waitFor({ state: 'visible', timeout: 30000 });
-              await submit.click();
-              for (let i = 0; i < 90 && !capturedResponse; i++) await page.waitForTimeout(500);
+              await page.waitForTimeout(10000);
+              bodyText = redact(await page.locator('body').innerText()).slice(0, 100000);
+              if (/tracking history|moving through network|delivered|in transit|pre-shipment|awaiting item|status/i.test(bodyText)) {
+                loaded = true;
+                break;
+              }
             } catch (error) {
-              uiError = String(error?.message || error).split('\n')[0];
+              lastError = String(error?.message || error).split('\n')[0];
             }
-
-            let parsed = null;
-            let parseError = null;
-            if (capturedResponse) {
-              try { parsed = JSON.parse(capturedResponse.body); }
-              catch (error) { parseError = String(error?.message || error); }
-            }
-            const states = Array.isArray(parsed?.states) ? parsed.states : [];
-            const services = Array.isArray(parsed?.services) ? parsed.services : [];
-            const result = {
-              name,
-              pageUrl: url,
-              uiError,
-              request: sanitizeRequest(capturedRequest),
-              responseStatus: capturedResponse?.status ?? null,
-              responseContentType: capturedResponse?.contentType ?? null,
-              responseError: parsed?.error ?? null,
-              responseKeys: parsed ? Object.keys(parsed) : [],
-              parseError,
-              stateCount: states.length,
-              serviceCount: services.length,
-              services: services.map((service, index) => ({ index, slug: service?.slug, name: service?.name })),
-              detected: parsed?.detected,
-              correctIdPresent: Boolean(parsed?.correctId)
-            };
-            await page.close();
-            return result;
           }
 
-          const results = [
-            await probe('auto', 'https://parcelsapp.com/en'),
-            await probe('usps-carrier-page', 'https://parcelsapp.com/en/carriers/usps')
-          ];
-          fs.writeFileSync('parcelsapp-protocol-sanitized.json', JSON.stringify(results, null, 2));
-          console.log(JSON.stringify(results, null, 2));
+          const output = {
+            loaded,
+            lastError,
+            finalUrl: redact(page.url()),
+            bodyText,
+            captures
+          };
+          fs.writeFileSync('usps-live-capture.json', JSON.stringify(output, null, 2));
+          console.log(JSON.stringify({
+            loaded,
+            lastError,
+            finalUrl: output.finalUrl,
+            bodyContainsTrackingHistory: /tracking history/i.test(bodyText),
+            bodyContainsStatusLanguage: /moving through network|delivered|in transit|pre-shipment|awaiting item/i.test(bodyText),
+            captures: captures.map(({ url, method, resourceType, status, contentType, requestBody, responseBody }) => ({
+              url, method, resourceType, status, contentType,
+              requestBodyLength: requestBody.length,
+              responseBodyLength: responseBody.length
+            }))
+          }, null, 2));
           await browser.close();
-
-          if (!results.some(result => result.stateCount > 0)) {
-            throw new Error('Neither public browser flow returned tracking states');
-          }
+          if (!loaded) throw new Error('USPS first-party page did not render tracking status');
           EOF
           node probe.mjs
 
-      - name: Upload sanitized protocol capture
+      - name: Upload private diagnostic capture
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: parcelsapp-live-protocol-sanitized
-          path: parcelsapp-protocol-sanitized.json
+          name: usps-live-protocol-capture
+          path: usps-live-capture.json
           if-no-files-found: warn
-          retention-days: 2
+          retention-days: 1
