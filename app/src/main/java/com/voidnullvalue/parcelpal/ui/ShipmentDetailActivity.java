@@ -29,11 +29,14 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ShipmentDetailActivity extends AppCompatActivity {
     public static final String EXTRA_SHIPMENT_ID = "shipment_id";
+    public static final String EXTRA_AUTO_REFRESH = "auto_refresh";
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean refreshInFlight = new AtomicBoolean(false);
     private ShipmentRepository repository;
     private long shipmentId;
     private Shipment shipment;
@@ -46,6 +49,7 @@ public final class ShipmentDetailActivity extends AppCompatActivity {
     private TextView error;
     private TextView networkAudit;
     private LinearLayout timeline;
+    private boolean destroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,20 +77,28 @@ public final class ShipmentDetailActivity extends AppCompatActivity {
         name.setOnClickListener(v -> showEditDialog());
         tracking.setOnClickListener(v -> copyTracking());
         load();
+        boolean autoRefresh = savedInstanceState == null &&
+                getIntent().getBooleanExtra(EXTRA_AUTO_REFRESH, false);
+        getIntent().removeExtra(EXTRA_AUTO_REFRESH);
+        if (autoRefresh) refresh(false);
     }
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
         io.shutdownNow();
         super.onDestroy();
     }
 
     private void load() {
+        if (!isUiActive()) return;
         io.execute(() -> {
             Shipment loaded = repository.getShipment(shipmentId);
             List<TrackingEvent> events = repository.listEvents(shipmentId);
             List<TrackingLeg> legs = repository.listLegs(shipmentId);
-            runOnUiThread(() -> render(loaded, events, legs));
+            runOnUiThread(() -> {
+                if (isUiActive()) render(loaded, events, legs);
+            });
         });
     }
 
@@ -151,12 +163,19 @@ public final class ShipmentDetailActivity extends AppCompatActivity {
     }
 
     private void refresh() {
+        refresh(true);
+    }
+
+    private void refresh(boolean userInitiated) {
+        if (!refreshInFlight.compareAndSet(false, true)) return;
         View button = findViewById(R.id.refreshButton);
         button.setEnabled(false);
-        Toast.makeText(this, "Refreshing", Toast.LENGTH_SHORT).show();
+        if (userInitiated) Toast.makeText(this, "Refreshing", Toast.LENGTH_SHORT).show();
         io.execute(() -> {
             ShipmentRepository.RefreshOutcome outcome = repository.refresh(shipmentId);
             runOnUiThread(() -> {
+                refreshInFlight.set(false);
+                if (!isUiActive()) return;
                 button.setEnabled(true);
                 if (!outcome.success) Toast.makeText(this, outcome.error, Toast.LENGTH_LONG).show();
                 load();
@@ -198,19 +217,23 @@ public final class ShipmentDetailActivity extends AppCompatActivity {
         trackingInput.setText(shipment.trackingNumber);
         trackingInput.setEnabled(false);
         carrierInput.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, CarrierDetector.carrierChoices()));
-        carrierInput.setText(shipment.carrierHint, false);
+        carrierInput.setText(CarrierDetector.normalizeChoice(shipment.carrierHint), false);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("Edit package")
                 .setView(view)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", (dialog, which) -> io.execute(() -> {
                     String newName = nameInput.getText() == null ? "" : nameInput.getText().toString().trim();
-                    String newCarrier = carrierInput.getText() == null ? "Auto-detect" : carrierInput.getText().toString().trim();
+                    String newCarrier = CarrierDetector.normalizeChoice(carrierInput.getText());
                     repository.renameShipment(shipmentId, newName);
                     repository.changeCarrier(shipmentId, newCarrier);
                     runOnUiThread(this::load);
                 }))
                 .show();
+    }
+
+    private boolean isUiActive() {
+        return !destroyed && !isFinishing() && !isDestroyed();
     }
 
     private void copyTracking() {
