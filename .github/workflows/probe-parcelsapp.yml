@@ -30,7 +30,7 @@ jobs:
 
       - name: Capture public browser requests
         run: |
-          cat > /tmp/probe.mjs <<'EOF'
+          cat > probe.mjs <<'EOF'
           import fs from 'node:fs';
           import { chromium } from 'playwright';
 
@@ -116,9 +116,10 @@ jobs:
           }, null, 2));
           await browser.close();
           EOF
-          node /tmp/probe.mjs
+          node probe.mjs
 
       - name: Upload protocol capture
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: parcelsapp-web-protocol
