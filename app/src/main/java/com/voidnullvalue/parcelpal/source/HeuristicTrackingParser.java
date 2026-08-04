@@ -31,7 +31,12 @@ public final class HeuristicTrackingParser {
     private static final Pattern JSON_STATUS = Pattern.compile("(?i)\\\"(?:status|description|message|details|checkpoint_status|substatus|state|activity|event)\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"]){1,350})\\\"");
     private static final Pattern JSON_LOCATION = Pattern.compile("(?i)\\\"(?:location|city|place|address|facility)\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"]){0,220})\\\"");
     private static final Pattern JSON_TIME = Pattern.compile("(?i)\\\"(?:time|date|datetime|event_time|checkpoint_time|created_at|timestamp|eventDateTime)\\\"\\s*:\\s*\\\"([^\\\"]{4,90})\\\"");
-    private static final Pattern TRACKING_CANDIDATE = Pattern.compile("(?i)\\b(?:1Z[0-9A-Z]{16}|TBA[0-9]{12,}|[A-Z]{2}[0-9]{9}[A-Z]{2}|9[2345][0-9]{18,32}|GM[0-9]{16,22}|JD[0-9]{16,}|(?:YT|LP|UNI|UUS)[0-9A-Z]{10,}|[A-Z0-9]{10,40})\\b");
+    private static final Pattern EXPLICIT_LINKED_JSON = Pattern.compile(
+            "(?i)\\\"(?:(?:final|last)[_-]?mile[_-]?tracking(?:[_-]?number)?|(?:local|alternate|linked|next|new|delivery|postal)[_-]?tracking(?:[_-]?number)?)\\\"\\s*:\\s*\\\"([^\\\"]{1,120})\\\"");
+    private static final Pattern VISIBLE_LINK_CONTEXT = Pattern.compile(
+            "(?i)(?:(?:final|last)[ -]?mile|local|alternate|linked|next|new|delivery|postal|USPS|UPS|FedEx|DHL)\\s+(?:carrier\\s+)?tracking(?:\\s+number)?\\s*[:#-]?\\s*(.{1,100})");
+    private static final Pattern CONTEXTUAL_TRACKING_VALUE = Pattern.compile(
+            "(?i)\\b(?=[A-Z0-9]{7,50}\\b)(?=[A-Z0-9]*[0-9])[A-Z0-9]+\\b");
     private static final Pattern ETA_PATTERN = Pattern.compile("(?i)(?:estimated|expected|scheduled|delivery date|arriving|deliver(?:y|ed)? by)\\s*[:\\-]?\\s*([A-Z][a-z]{2,8}\\s+\\d{1,2}(?:,\\s*\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}/\\d{1,2}/\\d{2,4})");
     private static final Pattern DATE_PREFIX = Pattern.compile("(?i)^(?:\\w{3,9}\\s+\\d{1,2},?\\s+\\d{4}|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4})(?:\\s+.{0,18})?");
     private static final Pattern ISO_IN_TEXT = Pattern.compile("\\b\\d{4}-\\d{2}-\\d{2}(?:[T ]\\d{2}:\\d{2}(?::\\d{2})?(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?)?\\b");
@@ -48,7 +53,7 @@ public final class HeuristicTrackingParser {
 
         Document doc = Jsoup.parse(payload);
         result.carrierName = inferCarrier(doc, trackingNumber);
-        result.estimatedDelivery = extractEstimatedDelivery(doc.text() + " " + payload);
+        result.estimatedDelivery = extractEstimatedDelivery(doc.text());
 
         List<TrackingEvent> events = new ArrayList<>();
         for (Element script : doc.select("script")) {
@@ -74,7 +79,7 @@ public final class HeuristicTrackingParser {
             result.normalizedStatus = StatusNormalizer.normalize(visibleStatus);
         }
 
-        result.linkedTrackingNumbers.addAll(findLinkedTrackingNumbers(doc.text() + " " + payload, compactTracking));
+        result.linkedTrackingNumbers.addAll(findLinkedTrackingNumbers(doc, payload, compactTracking));
         return result;
     }
 
@@ -141,17 +146,34 @@ public final class HeuristicTrackingParser {
         return "Auto-detect";
     }
 
-    private static Set<String> findLinkedTrackingNumbers(String text, String original) {
+    private static Set<String> findLinkedTrackingNumbers(Document doc, String payload, String original) {
         Set<String> linked = new LinkedHashSet<>();
-        Matcher matcher = TRACKING_CANDIDATE.matcher(text.toUpperCase(Locale.US));
-        while (matcher.find() && linked.size() < 8) {
-            String candidate = CarrierDetector.normalizeTrackingNumber(matcher.group());
-            if (candidate.equals(original) || !CarrierDetector.plausible(candidate)) continue;
-            String detected = CarrierDetector.detect(candidate);
-            if ("Auto-detect".equals(detected) && candidate.length() < 13) continue;
-            linked.add(candidate);
+
+        Matcher jsonMatcher = EXPLICIT_LINKED_JSON.matcher(payload);
+        while (jsonMatcher.find() && linked.size() < 6) {
+            addContextualTrackingValues(jsonMatcher.group(1), original, linked);
+        }
+
+        for (Element element : doc.select("body *")) {
+            String ownText = clean(element.ownText());
+            if (ownText.isEmpty() || ownText.length() > 250) continue;
+            Matcher visibleMatcher = VISIBLE_LINK_CONTEXT.matcher(ownText);
+            while (visibleMatcher.find() && linked.size() < 6) {
+                addContextualTrackingValues(visibleMatcher.group(1), original, linked);
+            }
+            if (linked.size() >= 6) break;
         }
         return linked;
+    }
+
+    private static void addContextualTrackingValues(String value, String original, Set<String> linked) {
+        if (value == null || value.trim().isEmpty()) return;
+        Matcher candidateMatcher = CONTEXTUAL_TRACKING_VALUE.matcher(value.toUpperCase(Locale.US));
+        while (candidateMatcher.find() && linked.size() < 6) {
+            String candidate = CarrierDetector.normalizeTrackingNumber(candidateMatcher.group());
+            if (candidate.equals(original) || !CarrierDetector.plausible(candidate)) continue;
+            linked.add(candidate);
+        }
     }
 
     private static String extractEstimatedDelivery(String text) {
@@ -170,12 +192,22 @@ public final class HeuristicTrackingParser {
     private static boolean looksLikeTrackingStatus(String text) {
         if (text == null) return false;
         String s = clean(text).toLowerCase(Locale.US);
-        if (s.isEmpty() || s.contains("privacy policy") || s.contains("cookie") || s.contains("track any package") || s.contains("how to track") || s.contains("download the app")) return false;
-        return s.contains("delivered") || s.contains("delivery") || s.contains("transit") || s.contains("departed") ||
-                s.contains("arrived") || s.contains("accepted") || s.contains("shipment") || s.contains("customs") ||
-                s.contains("picked up") || s.contains("processed") || s.contains("facility") || s.contains("exception") ||
-                s.contains("label created") || s.contains("out for delivery") || s.contains("handover") || s.contains("sorting") ||
-                s.contains("collection") || s.contains("notice left") || DATE_PREFIX.matcher(text).find();
+        if (s.isEmpty() || s.contains("privacy policy") || s.contains("cookie") || s.contains("track any package") ||
+                s.contains("how to track") || s.contains("download the app")) return false;
+        if (isGenericTrackingLabel(s)) return false;
+        if (!"UNKNOWN".equals(StatusNormalizer.normalize(s))) return true;
+        return s.contains("tendered to") || s.contains("en route") || s.contains("on the way") ||
+                s.contains("forwarded to") || s.contains("received at") || s.contains("loaded for transport") ||
+                s.contains("awaiting carrier pickup") || s.contains("manifested") || s.contains("departing") ||
+                s.contains("released from customs");
+    }
+
+    private static boolean isGenericTrackingLabel(String value) {
+        String s = value.replaceAll("[.:\\-]+$", "").trim();
+        return s.equals("delivery time") || s.equals("estimated delivery") || s.equals("expected delivery") ||
+                s.equals("delivery date") || s.equals("shipment tracking") || s.equals("tracking details") ||
+                s.equals("tracking information") || s.equals("package status") || s.equals("shipment status") ||
+                s.equals("delivery status") || s.equals("status");
     }
 
     private static long parseTime(String value) {

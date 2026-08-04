@@ -11,11 +11,11 @@ public final class StatusNormalizer {
         if (containsAny(s, "delivered", "delivery completed", "received by recipient", "signed for")) return "DELIVERED";
         if (containsAny(s, "out for delivery", "with delivery courier", "courier is delivering", "on vehicle for delivery")) return "OUT_FOR_DELIVERY";
         if (containsAny(s, "attempted delivery", "delivery attempt", "recipient unavailable", "notice left")) return "ATTEMPTED";
-        if (containsAny(s, "exception", "failed", "held", "return to sender", "undeliverable", "delay", "damaged", "lost")) return "EXCEPTION";
-        if (containsAny(s, "customs", "clearance", "import scan", "export scan")) return "CUSTOMS";
+        if (containsAny(s, "exception", "failed", "held", "return to sender", "undeliverable", "delay", "damaged", "lost", "address issue")) return "EXCEPTION";
+        if (containsAny(s, "customs", "clearance", "import scan", "export scan", "released from customs")) return "CUSTOMS";
         if (containsAny(s, "available for pickup", "ready for collection", "pickup point")) return "READY_FOR_PICKUP";
-        if (containsAny(s, "label created", "shipment information", "pre-shipment", "electronic information", "order data transmitted")) return "PRE_TRANSIT";
-        if (containsAny(s, "in transit", "departed", "arrived", "processed", "accepted", "picked up", "handover", "sorting", "facility")) return "IN_TRANSIT";
+        if (containsAny(s, "label created", "shipment information", "pre-shipment", "electronic information", "order data transmitted", "awaiting carrier pickup", "manifested")) return "PRE_TRANSIT";
+        if (containsAny(s, "in transit", "departed", "arrived", "processed", "accepted", "picked up", "handover", "sorting", "facility", "tendered to", "en route", "on the way", "forwarded to", "received at", "loaded for transport", "departing")) return "IN_TRANSIT";
         return "UNKNOWN";
     }
 
