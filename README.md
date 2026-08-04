@@ -21,7 +21,9 @@ ParcelPal is a local-first Android package tracker. It stores package names, tra
 
 ParcelPal does not operate a server. Network requests go directly from the phone to the enabled tracking source. A contacted source can therefore see the tracking number, carrier hint, IP address, request time, and ordinary HTTP metadata. It does not receive the local package name or the complete local package list.
 
-Requests are HTTPS-only, responses are size-limited, and requests are restricted to source-specific allowlisted hostnames. Generic page sources do not retain cookies. The ParcelsApp adapter establishes the same first-party session and CSRF token used by its public website, keeps that cookie only in memory for one lookup, and discards it immediately afterward. ParcelPal does not execute tracking-site JavaScript, embed a WebView, load advertising pixels, or persist browser state.
+Requests are HTTPS-only, responses are bounded, and requests are restricted to source-specific allowlisted hostnames. Generic page sources do not retain cookies. The ParcelsApp adapter creates one ephemeral first-party session and discards it after the lookup.
+
+USPS requires browser-rendered JavaScript for current tracking results. ParcelPal therefore creates an offscreen Android System WebView only for a USPS lookup. It permits HTTPS traffic only to `usps.com` and its subdomains, blocks third-party resources, disables third-party cookies, file and content access, mixed content, popups, geolocation, and JavaScript bridges, then clears cookies, cache, and browser state and destroys the WebView. No browser UI is exposed to the user and no browser state is reused between lookups.
 
 The camera permission is used only after the user selects **Scan barcode**. Notification permission is used only for optional background status notifications.
 
@@ -29,7 +31,7 @@ See [PRIVACY.md](PRIVACY.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Tracking-source limitation
 
-Carrier and aggregator interfaces change, rate-limit clients, and may introduce interactive challenges. ParcelPal uses constrained source-specific clients and reports failures instead of bypassing a challenge or fabricating tracking data. The ParcelsApp integration consumes the structured JSON protocol used by its public web client rather than scraping rendered labels from its JavaScript shell.
+Carrier and aggregator interfaces change, rate-limit clients, and may introduce interactive challenges. ParcelPal uses constrained source-specific clients and reports failures instead of bypassing a challenge or fabricating tracking data. The ParcelsApp integration consumes the structured JSON protocol used by its public web client. The USPS integration extracts only the first-party status and timeline DOM nodes after the official page finishes rendering.
 
 This means no local-only app can guarantee permanent support for every carrier. The source audit in each package detail screen makes failures explicit.
 
