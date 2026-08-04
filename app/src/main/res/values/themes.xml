@@ -5,6 +5,5 @@
         <item name="colorOnPrimary">@color/on_primary</item>
         <item name="android:colorAccent">@color/primary</item>
         <item name="android:navigationBarColor">@color/surface</item>
-        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
