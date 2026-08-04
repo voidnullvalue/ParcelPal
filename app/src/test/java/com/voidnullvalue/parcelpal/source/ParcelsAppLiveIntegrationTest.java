@@ -25,7 +25,7 @@ public final class ParcelsAppLiveIntegrationTest {
         ParcelsAppWebSource source = new ParcelsAppWebSource(recipe, new ParcelsAppJsonParser());
         TrackingResult result = source.fetch(new TrackingTarget(trackingNumber, "USPS"));
 
-        assertTrue("Expected a credible result", result.isUseful());
-        assertFalse("Expected at least one live tracking event", result.events.isEmpty());
+        assertTrue("Expected a credible live USPS result", result.isUseful());
+        assertFalse("Expected at least one live USPS tracking event", result.events.isEmpty());
     }
 }
