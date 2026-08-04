@@ -84,7 +84,7 @@ jobs:
 
   release:
     name: Create GitHub release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -116,9 +116,11 @@ jobs:
 
           notes_file="$(mktemp)"
           cat > "$notes_file" <<EOF
-          Installable ParcelPal build for commit ${GITHUB_SHA}.
+          ParcelPal ${VERSION_NAME}
 
-          The APK is signed with the Android debug key because no private release-signing key is stored in the repository. Verify the attached SHA-256 file before installation.
+          Fixes false tracking data from public aggregator pages, rejects generic labels such as Delivery time, prevents arbitrary JavaScript tokens from becoming linked tracking numbers, removes recursive linked-leg discovery, and purges previously stored bogus legs on refresh.
+
+          Installable build for commit ${GITHUB_SHA}. The APK is signed with the Android debug key. Verify the attached SHA-256 file before installation.
           EOF
 
           if gh release view "$tag" >/dev/null 2>&1; then
