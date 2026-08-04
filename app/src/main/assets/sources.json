@@ -6,7 +6,7 @@
       "name": "USPS",
       "kind": "direct",
       "carriers": ["USPS"],
-      "hosts": ["tools.usps.com"],
+      "hosts": ["tools.usps.com", "www.usps.com"],
       "url": "https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
     },
     {
