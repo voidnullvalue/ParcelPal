@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - research/parcelsapp-web-protocol
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
