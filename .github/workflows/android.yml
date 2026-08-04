@@ -3,6 +3,7 @@ name: Android APK
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,27 +16,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version_name: ${{ steps.metadata.outputs.version_name }}
+      short_sha: ${{ steps.metadata.outputs.short_sha }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Android platform
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.11.1'
+          cache-provider: basic
 
       - name: Validate privacy invariants
         run: bash tools/privacy-audit.sh
@@ -43,19 +50,83 @@ jobs:
       - name: Test, lint, and build APK
         run: gradle --no-daemon testDebugUnitTest lintDebug assembleDebug
 
+      - name: Prepare distributable APK
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_name="$(sed -nE "s/^[[:space:]]*versionName[[:space:]]+['\"]([^'\"]+)['\"].*/\1/p" app/build.gradle | head -n 1)"
+          test -n "$version_name"
+          short_sha="${GITHUB_SHA::12}"
+          mkdir -p dist
+          apk_name="ParcelPal-${version_name}-${short_sha}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/${apk_name}"
+          sha256sum "dist/${apk_name}" > "dist/${apk_name}.sha256"
+          echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ParcelPal-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload lint report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ParcelPal-lint-${{ github.sha }}
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
           retention-days: 14
+
+  release:
+    name: Create GitHub release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download built APK
+        uses: actions/download-artifact@v7
+        with:
+          name: ParcelPal-debug-${{ github.sha }}
+          path: dist
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ needs.build.outputs.version_name }}
+          SHORT_SHA: ${{ needs.build.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION_NAME}-${SHORT_SHA}"
+          title="ParcelPal ${VERSION_NAME} (${SHORT_SHA})"
+          apk="$(find dist -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$apk"
+          checksum="${apk}.sha256"
+          test -f "$checksum"
+
+          notes_file="$(mktemp)"
+          cat > "$notes_file" <<EOF
+          Automated installable debug build for commit ${GITHUB_SHA}.
+
+          This is a prerelease build signed with the Android debug key. Verify the attached SHA-256 file before installation.
+          EOF
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk" "$checksum" --clobber
+            gh release edit "$tag" --title "$title" --notes-file "$notes_file" --prerelease
+          else
+            gh release create "$tag" "$apk" "$checksum" \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes-file "$notes_file" \
+              --prerelease
+          fi
