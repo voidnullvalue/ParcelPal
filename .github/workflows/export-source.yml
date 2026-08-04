@@ -1,0 +1,23 @@
+name: Export source snapshot
+
+on:
+  push:
+    branches:
+      - fix/navigation-autodetect-branding
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Archive repository source
+        run: |
+          tar --exclude=.git -czf ParcelPal-source.tar.gz .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ParcelPal-source-${{ github.sha }}
+          path: ParcelPal-source.tar.gz
+          retention-days: 1
