@@ -19,15 +19,18 @@ import java.util.List;
 import java.util.Set;
 
 public final class SourceRegistry {
+    private final Context context;
     private final SourcePreferences preferences;
     private final SafeHttpClient http = new SafeHttpClient();
     private final HeuristicTrackingParser parser = new HeuristicTrackingParser();
     private final ParcelsAppJsonParser parcelsAppParser = new ParcelsAppJsonParser();
+    private final UspsDomParser uspsParser = new UspsDomParser();
     private final List<SourceRecipe> recipes;
 
     public SourceRegistry(Context context, SourcePreferences preferences) {
+        this.context = context.getApplicationContext();
         this.preferences = preferences;
-        this.recipes = loadRecipes(context);
+        this.recipes = loadRecipes(this.context);
     }
 
     public List<TrackingSource> sourcesFor(TrackingTarget target) {
@@ -35,9 +38,14 @@ public final class SourceRegistry {
         List<TrackingSource> aggregators = new ArrayList<>();
         for (SourceRecipe recipe : recipes) {
             if (!preferences.sourceEnabled(recipe.id, recipe.kind)) continue;
-            TrackingSource source = "parcelsapp".equals(recipe.id)
-                    ? new ParcelsAppWebSource(recipe, parcelsAppParser)
-                    : new GenericHtmlSource(recipe, http, parser);
+            TrackingSource source;
+            if ("usps".equals(recipe.id)) {
+                source = new UspsBrowserSource(context, recipe, uspsParser);
+            } else if ("parcelsapp".equals(recipe.id)) {
+                source = new ParcelsAppWebSource(recipe, parcelsAppParser);
+            } else {
+                source = new GenericHtmlSource(recipe, http, parser);
+            }
             if (!source.supports(target)) continue;
             if ("direct".equals(recipe.kind)) direct.add(source); else aggregators.add(source);
         }
