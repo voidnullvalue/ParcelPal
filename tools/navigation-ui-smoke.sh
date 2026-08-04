@@ -53,7 +53,10 @@ assert_node() {
 }
 
 current_activity() {
-  adb shell dumpsys activity activities | sed -nE 's/.*mResumedActivity:.* ([^ ]+) .*/\1/p' | head -n 1
+  adb shell dumpsys activity activities \
+    | grep -m1 'topResumedActivity=' \
+    | grep -oE 'com\.voidnullvalue\.parcelpal\.debug/[^ ]+' \
+    | head -n 1
 }
 
 assert_activity() {
