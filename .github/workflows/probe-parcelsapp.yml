@@ -1,0 +1,124 @@
+name: Probe ParcelsApp web protocol
+
+on:
+  push:
+    branches:
+      - research/parcelsapp-web-protocol
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Capture public browser requests
+        run: |
+          cat > /tmp/probe.mjs <<'EOF'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const sampleTracking = '9400111206213785678901';
+          const records = [];
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            locale: 'en-US',
+            timezoneId: 'America/Chicago',
+            userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+          });
+          const page = await context.newPage();
+
+          const relevantHost = (url) => {
+            try {
+              const host = new URL(url).hostname;
+              return host === 'parcelsapp.com' || host.endsWith('.parcelsapp.com');
+            } catch {
+              return false;
+            }
+          };
+
+          page.on('request', request => {
+            if (!relevantHost(request.url())) return;
+            const headers = { ...request.headers() };
+            delete headers.cookie;
+            delete headers.authorization;
+            records.push({
+              type: 'request',
+              resourceType: request.resourceType(),
+              method: request.method(),
+              url: request.url(),
+              headers,
+              postData: request.postData() || null
+            });
+          });
+
+          page.on('response', async response => {
+            if (!relevantHost(response.url())) return;
+            const request = response.request();
+            const contentType = response.headers()['content-type'] || '';
+            const record = {
+              type: 'response',
+              resourceType: request.resourceType(),
+              method: request.method(),
+              url: response.url(),
+              status: response.status(),
+              contentType
+            };
+            if ((request.resourceType() === 'xhr' || request.resourceType() === 'fetch') &&
+                /json|text|javascript/.test(contentType)) {
+              try {
+                const body = await response.text();
+                record.body = body.length > 250000 ? body.slice(0, 250000) : body;
+              } catch (error) {
+                record.bodyError = String(error);
+              }
+            }
+            records.push(record);
+          });
+
+          let error = null;
+          try {
+            await page.goto('https://parcelsapp.com/en', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.waitForTimeout(3000);
+            const input = page.locator('input').first();
+            await input.fill(sampleTracking);
+            await input.press('Enter');
+            await page.waitForTimeout(30000);
+          } catch (caught) {
+            error = String(caught);
+          }
+
+          fs.mkdirSync('probe-output', { recursive: true });
+          await page.screenshot({ path: 'probe-output/final.png', fullPage: true }).catch(() => {});
+          fs.writeFileSync('probe-output/final.html', await page.content());
+          fs.writeFileSync('probe-output/protocol.json', JSON.stringify({
+            sampleTracking,
+            finalUrl: page.url(),
+            title: await page.title(),
+            error,
+            records
+          }, null, 2));
+          await browser.close();
+          EOF
+          node /tmp/probe.mjs
+
+      - name: Upload protocol capture
+        uses: actions/upload-artifact@v7
+        with:
+          name: parcelsapp-web-protocol
+          path: probe-output/
+          if-no-files-found: error
+          retention-days: 2
