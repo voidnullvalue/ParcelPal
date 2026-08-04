@@ -6,7 +6,6 @@ import com.voidnullvalue.parcelpal.network.SafeHttpClient;
 
 import java.io.IOException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
 public final class GenericHtmlSource implements TrackingSource {
@@ -28,7 +27,7 @@ public final class GenericHtmlSource implements TrackingSource {
 
     @Override
     public TrackingResult fetch(TrackingTarget target) throws IOException {
-        String encoded = URLEncoder.encode(target.trackingNumber, StandardCharsets.UTF_8).replace("+", "%20");
+        String encoded = URLEncoder.encode(target.trackingNumber, "UTF-8").replace("+", "%20");
         String url = recipe.urlTemplate.replace("{tracking}", encoded);
         SafeHttpClient.HttpResponse response = httpClient.get(url, recipe.hosts);
         TrackingResult result = parser.parse(response.body, target.trackingNumber, recipe.id, recipe.name);
