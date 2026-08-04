@@ -3,6 +3,7 @@ package com.voidnullvalue.parcelpal.source;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.net.http.SslError;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -166,7 +167,9 @@ public final class UspsBrowserSource implements TrackingSource {
                 settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
                 settings.setSaveFormData(false);
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
-                WebView.startSafeBrowsing(context, null);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    WebView.startSafeBrowsing(context, null);
+                }
                 webView.setWebViewClient(new LockedWebViewClient());
                 webView.loadUrl(url);
             } catch (RuntimeException error) {
