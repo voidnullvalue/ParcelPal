@@ -22,6 +22,7 @@ public final class SourceRegistry {
     private final SourcePreferences preferences;
     private final SafeHttpClient http = new SafeHttpClient();
     private final HeuristicTrackingParser parser = new HeuristicTrackingParser();
+    private final ParcelsAppJsonParser parcelsAppParser = new ParcelsAppJsonParser();
     private final List<SourceRecipe> recipes;
 
     public SourceRegistry(Context context, SourcePreferences preferences) {
@@ -34,7 +35,9 @@ public final class SourceRegistry {
         List<TrackingSource> aggregators = new ArrayList<>();
         for (SourceRecipe recipe : recipes) {
             if (!preferences.sourceEnabled(recipe.id, recipe.kind)) continue;
-            GenericHtmlSource source = new GenericHtmlSource(recipe, http, parser);
+            TrackingSource source = "parcelsapp".equals(recipe.id)
+                    ? new ParcelsAppWebSource(recipe, parcelsAppParser)
+                    : new GenericHtmlSource(recipe, http, parser);
             if (!source.supports(target)) continue;
             if ("direct".equals(recipe.kind)) direct.add(source); else aggregators.add(source);
         }
