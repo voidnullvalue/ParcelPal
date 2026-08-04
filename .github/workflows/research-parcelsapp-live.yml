@@ -29,90 +29,119 @@ jobs:
 
       - name: Capture and verify browser protocol
         run: |
-          cat > /tmp/probe.mjs <<'EOF'
+          cat > probe.mjs <<'EOF'
           import fs from 'node:fs';
           import { chromium } from 'playwright';
 
-          // User-supplied live number, split so it is not indexed or printed as one token.
           const tracking = ['92055902', '6733880000', '68080083'].join('');
           const browser = await chromium.launch({ headless: true });
           const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
             viewport: { width: 412, height: 915 },
-            locale: 'en-US'
+            locale: 'en-US',
+            timezoneId: 'America/Chicago',
+            isMobile: true,
+            hasTouch: true
           });
-          const page = await context.newPage();
-          let capturedRequest = null;
-          let capturedResponse = null;
 
-          page.on('request', request => {
-            if (request.url().includes('/api/v2/parcels')) {
-              capturedRequest = {
-                method: request.method(),
-                url: request.url(),
-                postData: request.postData() || '',
-                headers: request.headers()
-              };
+          function sanitizeRequest(request) {
+            if (!request) return null;
+            const params = new URLSearchParams(request.postData || '');
+            const fields = {};
+            for (const [key, value] of params.entries()) {
+              fields[key] = key.toLowerCase().includes('tracking') ? '<redacted>' : value;
             }
-          });
-          page.on('response', async response => {
-            if (response.url().includes('/api/v2/parcels')) {
-              capturedResponse = {
-                status: response.status(),
-                contentType: response.headers()['content-type'] || '',
-                body: await response.text()
-              };
-            }
-          });
-
-          await page.goto('https://parcelsapp.com/en', { waitUntil: 'domcontentloaded', timeout: 60000 });
-          const trackingInput = page.locator('input[placeholder*="tracking" i], input[name*="tracking" i], input[type="search"], input[type="text"]').first();
-          await trackingInput.waitFor({ state: 'visible', timeout: 30000 });
-          await trackingInput.fill(tracking);
-          const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /track/i }).first();
-          await submit.waitFor({ state: 'visible', timeout: 30000 });
-          await submit.click();
-
-          for (let i = 0; i < 90 && !capturedResponse; i++) await page.waitForTimeout(500);
-          if (!capturedRequest) throw new Error('No /api/v2/parcels request was observed');
-          if (!capturedResponse) throw new Error('No /api/v2/parcels response was observed');
-
-          const parsed = JSON.parse(capturedResponse.body);
-          const states = Array.isArray(parsed.states) ? parsed.states : [];
-          const services = Array.isArray(parsed.services) ? parsed.services : [];
-          if (capturedResponse.status !== 200) throw new Error(`HTTP ${capturedResponse.status}`);
-          if (parsed.error) throw new Error(`ParcelsApp protocol error: ${parsed.error}`);
-          if (states.length === 0) throw new Error(`No tracking states; response keys=${Object.keys(parsed).join(',')}`);
-
-          const params = new URLSearchParams(capturedRequest.postData);
-          const sanitizedFields = {};
-          for (const [key, value] of params.entries()) {
-            sanitizedFields[key] = key.toLowerCase().includes('tracking') ? '<redacted>' : value;
+            return {
+              method: request.method,
+              url: request.url,
+              fieldNames: [...params.keys()],
+              fields
+            };
           }
-          const sanitized = {
-            requestMethod: capturedRequest.method,
-            requestUrl: capturedRequest.url,
-            requestFieldNames: [...params.keys()],
-            requestFields: sanitizedFields,
-            responseStatus: capturedResponse.status,
-            responseContentType: capturedResponse.contentType,
-            responseKeys: Object.keys(parsed),
-            stateCount: states.length,
-            serviceCount: services.length,
-            services: services.map((service, index) => ({ index, slug: service?.slug, name: service?.name })),
-            detected: parsed.detected,
-            correctIdPresent: Boolean(parsed.correctId)
-          };
-          fs.writeFileSync('/tmp/parcelsapp-protocol-sanitized.json', JSON.stringify(sanitized, null, 2));
-          console.log(JSON.stringify(sanitized, null, 2));
+
+          async function probe(name, url) {
+            const page = await context.newPage();
+            let capturedRequest = null;
+            let capturedResponse = null;
+            page.on('request', request => {
+              if (request.url().includes('/api/v2/parcels')) {
+                capturedRequest = {
+                  method: request.method(),
+                  url: request.url(),
+                  postData: request.postData() || ''
+                };
+              }
+            });
+            page.on('response', async response => {
+              if (response.url().includes('/api/v2/parcels')) {
+                capturedResponse = {
+                  status: response.status(),
+                  contentType: response.headers()['content-type'] || '',
+                  body: await response.text()
+                };
+              }
+            });
+
+            let uiError = null;
+            try {
+              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+              const trackingInput = page.locator('input[placeholder*="tracking" i], input[name*="tracking" i], input[type="search"], input[type="text"]').first();
+              await trackingInput.waitFor({ state: 'visible', timeout: 30000 });
+              await trackingInput.fill(tracking);
+              const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /track/i }).first();
+              await submit.waitFor({ state: 'visible', timeout: 30000 });
+              await submit.click();
+              for (let i = 0; i < 90 && !capturedResponse; i++) await page.waitForTimeout(500);
+            } catch (error) {
+              uiError = String(error?.message || error).split('\n')[0];
+            }
+
+            let parsed = null;
+            let parseError = null;
+            if (capturedResponse) {
+              try { parsed = JSON.parse(capturedResponse.body); }
+              catch (error) { parseError = String(error?.message || error); }
+            }
+            const states = Array.isArray(parsed?.states) ? parsed.states : [];
+            const services = Array.isArray(parsed?.services) ? parsed.services : [];
+            const result = {
+              name,
+              pageUrl: url,
+              uiError,
+              request: sanitizeRequest(capturedRequest),
+              responseStatus: capturedResponse?.status ?? null,
+              responseContentType: capturedResponse?.contentType ?? null,
+              responseError: parsed?.error ?? null,
+              responseKeys: parsed ? Object.keys(parsed) : [],
+              parseError,
+              stateCount: states.length,
+              serviceCount: services.length,
+              services: services.map((service, index) => ({ index, slug: service?.slug, name: service?.name })),
+              detected: parsed?.detected,
+              correctIdPresent: Boolean(parsed?.correctId)
+            };
+            await page.close();
+            return result;
+          }
+
+          const results = [
+            await probe('auto', 'https://parcelsapp.com/en'),
+            await probe('usps-carrier-page', 'https://parcelsapp.com/en/carriers/usps')
+          ];
+          fs.writeFileSync('parcelsapp-protocol-sanitized.json', JSON.stringify(results, null, 2));
+          console.log(JSON.stringify(results, null, 2));
           await browser.close();
+
+          if (!results.some(result => result.stateCount > 0)) {
+            throw new Error('Neither public browser flow returned tracking states');
+          }
           EOF
-          node /tmp/probe.mjs
+          node probe.mjs
 
       - name: Upload sanitized protocol capture
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: parcelsapp-live-protocol-sanitized
-          path: /tmp/parcelsapp-protocol-sanitized.json
-          if-no-files-found: error
+          path: parcelsapp-protocol-sanitized.json
+          if-no-files-found: warn
           retention-days: 2
