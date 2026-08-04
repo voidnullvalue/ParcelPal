@@ -63,16 +63,11 @@ jobs:
                        html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']/i)?.[1] || '';
           const cookie = cookiesFrom(page.headers);
 
+          const common = { platform: 'web-android', wd: 'false', c: 'false', p: '0', l: '1' };
           const variants = [
-            { name: 'minimal', fields: {} },
-            { name: 'mobile-no-fingerprint', fields: { platform: 'web-android', wd: 'false', c: 'false', p: '0', l: '1' } },
-            {
-              name: 'mobile-honest-fingerprint',
-              fields: {
-                platform: 'web-android', wd: 'false', c: 'false', p: '0', l: '1',
-                se: '412x915,412x915,412x915,no,Linux armv8l,Gecko,Mozilla,Netscape,Google Inc.,true,no,Qualcomm,Adreno,true,true,cGFyY2Vsc2FwcC5jb20=,,0,0,0'
-              }
-            }
+            { name: 'auto-detect', fields: common },
+            { name: 'explicit-usps-slug', fields: { ...common, slug: 'usps' } },
+            { name: 'explicit-usps-country', fields: { ...common, slug: 'usps', country: 'United States' } }
           ];
 
           const output = {
