@@ -1,0 +1,114 @@
+name: Research ParcelsApp live protocol
+
+on:
+  push:
+    branches:
+      - research/parcelsapp-protocol-v2
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Capture and verify browser protocol
+        run: |
+          cat > /tmp/probe.mjs <<'EOF'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          // User-supplied live number, split so it is not indexed or printed as one token.
+          const tracking = ['92055902', '6733880000', '68080083'].join('');
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+            viewport: { width: 412, height: 915 },
+            locale: 'en-US'
+          });
+          const page = await context.newPage();
+          let capturedRequest = null;
+          let capturedResponse = null;
+
+          page.on('request', request => {
+            if (request.url().includes('/api/v2/parcels')) {
+              capturedRequest = {
+                method: request.method(),
+                url: request.url(),
+                postData: request.postData() || '',
+                headers: request.headers()
+              };
+            }
+          });
+          page.on('response', async response => {
+            if (response.url().includes('/api/v2/parcels')) {
+              capturedResponse = {
+                status: response.status(),
+                contentType: response.headers()['content-type'] || '',
+                body: await response.text()
+              };
+            }
+          });
+
+          await page.goto('https://parcelsapp.com/en', { waitUntil: 'domcontentloaded', timeout: 60000 });
+          const input = page.locator('input').filter({ has: page.locator('') }).first();
+          const trackingInput = page.locator('input[placeholder*="tracking" i], input[name*="tracking" i], input[type="search"], input[type="text"]').first();
+          await trackingInput.fill(tracking);
+          const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /track/i }).first();
+          await submit.click();
+
+          for (let i = 0; i < 60 && !capturedResponse; i++) await page.waitForTimeout(500);
+          if (!capturedRequest) throw new Error('No /api/v2/parcels request was observed');
+          if (!capturedResponse) throw new Error('No /api/v2/parcels response was observed');
+
+          const parsed = JSON.parse(capturedResponse.body);
+          const states = Array.isArray(parsed.states) ? parsed.states : [];
+          const services = Array.isArray(parsed.services) ? parsed.services : [];
+          if (capturedResponse.status !== 200) throw new Error(`HTTP ${capturedResponse.status}`);
+          if (parsed.error) throw new Error(`ParcelsApp protocol error: ${parsed.error}`);
+          if (states.length === 0) throw new Error(`No tracking states; response keys=${Object.keys(parsed).join(',')}`);
+
+          const params = new URLSearchParams(capturedRequest.postData);
+          const sanitizedFields = {};
+          for (const [key, value] of params.entries()) {
+            sanitizedFields[key] = key.toLowerCase().includes('tracking') ? '<redacted>' : value;
+          }
+          const sanitized = {
+            requestMethod: capturedRequest.method,
+            requestUrl: capturedRequest.url,
+            requestFieldNames: [...params.keys()],
+            requestFields: sanitizedFields,
+            responseStatus: capturedResponse.status,
+            responseContentType: capturedResponse.contentType,
+            responseKeys: Object.keys(parsed),
+            stateCount: states.length,
+            serviceCount: services.length,
+            services: services.map((service, index) => ({ index, slug: service?.slug, name: service?.name })),
+            detected: parsed.detected,
+            correctIdPresent: Boolean(parsed.correctId)
+          };
+          fs.writeFileSync('/tmp/parcelsapp-protocol-sanitized.json', JSON.stringify(sanitized, null, 2));
+          console.log(JSON.stringify(sanitized, null, 2));
+          await browser.close();
+          EOF
+          node /tmp/probe.mjs
+
+      - name: Upload sanitized protocol capture
+        uses: actions/upload-artifact@v7
+        with:
+          name: parcelsapp-live-protocol-sanitized
+          path: /tmp/parcelsapp-protocol-sanitized.json
+          if-no-files-found: error
+          retention-days: 2
