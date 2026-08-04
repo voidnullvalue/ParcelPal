@@ -34,14 +34,37 @@ jobs:
           import asyncio
           import json
           import re
+          from urllib.parse import urlparse
           from camoufox.async_api import AsyncCamoufox
 
           TRACKING = ''.join(('92055902', '6733880000', '68080083'))
           URL = f'https://tools.usps.com/go/TrackConfirmAction?tLabels={TRACKING}'
 
+          def allowed(url: str) -> bool:
+              parsed = urlparse(url)
+              if parsed.scheme in ('about', 'data', 'blob'):
+                  return True
+              host = (parsed.hostname or '').lower()
+              return parsed.scheme == 'https' and (host == 'usps.com' or host.endswith('.usps.com'))
+
           async def main():
               async with AsyncCamoufox(headless=True) as browser:
                   context = await browser.new_context(locale='en-US', timezone_id='America/Chicago')
+                  allowed_hosts = set()
+                  blocked_hosts = set()
+
+                  async def route_request(route):
+                      host = (urlparse(route.request.url).hostname or '').lower()
+                      if allowed(route.request.url):
+                          if host:
+                              allowed_hosts.add(host)
+                          await route.continue_()
+                      else:
+                          if host:
+                              blocked_hosts.add(host)
+                          await route.abort()
+
+                  await context.route('**/*', route_request)
                   page = await context.new_page()
                   await page.goto(URL, wait_until='domcontentloaded', timeout=60000)
                   try:
@@ -82,6 +105,8 @@ jobs:
                           re.I,
                       )),
                       'bodyLength': len(body),
+                      'allowedHosts': sorted(allowed_hosts),
+                      'blockedHosts': sorted(blocked_hosts),
                   }
                   with open('usps-live-verification.json', 'w', encoding='utf-8') as handle:
                       json.dump(output, handle, indent=2)
@@ -90,7 +115,7 @@ jobs:
                   if challenge:
                       raise RuntimeError('USPS returned a bot challenge')
                   if not credible:
-                      raise RuntimeError('USPS page did not expose tracking status nodes')
+                      raise RuntimeError('USPS page did not expose tracking status nodes with third-party requests blocked')
 
           asyncio.run(main())
           EOF
