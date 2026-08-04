@@ -1,7 +1,12 @@
 (() => {
   const compact = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const structured = value => String(value || '')
+    .split(/\r?\n/)
+    .map(line => compact(line))
+    .filter(Boolean)
+    .join('\n');
   const texts = selector => Array.from(document.querySelectorAll(selector))
-    .map(node => compact(node.innerText || node.textContent || ''))
+    .map(node => structured(node.innerText || node.textContent || ''))
     .filter(Boolean)
     .slice(0, 150);
 
