@@ -37,10 +37,11 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:hint="Carrier hint">
-        <AutoCompleteTextView
+        <com.google.android.material.textfield.MaterialAutoCompleteTextView
             android:id="@+id/carrierInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="none" />
+            android:inputType="none"
+            android:text="@string/carrier_auto_detect" />
     </com.google.android.material.textfield.TextInputLayout>
 </LinearLayout>

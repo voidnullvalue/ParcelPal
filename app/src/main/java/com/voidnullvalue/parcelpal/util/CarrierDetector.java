@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.Locale;
 
 public final class CarrierDetector {
+    public static final String AUTO_DETECT = "Auto-detect";
+
     private static final List<String> CARRIERS = Collections.unmodifiableList(Arrays.asList(
-            "Auto-detect", "USPS", "UPS", "FedEx", "DHL", "DHL Express", "DHL eCommerce",
+            AUTO_DETECT, "USPS", "UPS", "FedEx", "DHL", "DHL Express", "DHL eCommerce",
             "Amazon Logistics", "OnTrac", "LaserShip", "Canada Post", "Royal Mail",
             "Australia Post", "International Post", "YunExpress", "Cainiao", "4PX", "UniUni"
     ));
@@ -15,6 +17,18 @@ public final class CarrierDetector {
     private CarrierDetector() {}
 
     public static List<String> carrierChoices() { return CARRIERS; }
+
+    public static String defaultChoice() { return AUTO_DETECT; }
+
+    public static String normalizeChoice(CharSequence value) {
+        if (value == null) return AUTO_DETECT;
+        String candidate = value.toString().trim();
+        if (candidate.isEmpty()) return AUTO_DETECT;
+        for (String carrier : CARRIERS) {
+            if (carrier.equalsIgnoreCase(candidate)) return carrier;
+        }
+        return AUTO_DETECT;
+    }
 
     public static String normalizeTrackingNumber(String value) {
         if (value == null) return "";
@@ -39,7 +53,7 @@ public final class CarrierDetector {
         if ((n.startsWith("LP") || n.startsWith("LA")) && n.length() >= 14) return "Cainiao";
         if (n.startsWith("4PX") || n.startsWith("LZ") && n.length() > 13) return "4PX";
         if (n.startsWith("UNI") || n.startsWith("UUS")) return "UniUni";
-        return "Auto-detect";
+        return AUTO_DETECT;
     }
 
     public static boolean plausible(String raw) {

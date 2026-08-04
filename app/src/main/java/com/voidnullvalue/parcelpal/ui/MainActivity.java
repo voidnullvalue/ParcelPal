@@ -10,6 +10,7 @@ import android.view.Menu;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -34,9 +35,11 @@ import com.voidnullvalue.parcelpal.util.TrackingTextExtractor;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class MainActivity extends AppCompatActivity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final AtomicInteger loadGeneration = new AtomicInteger();
     private final ActivityResultLauncher<String> notificationPermission = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(), granted -> { });
     private final ActivityResultLauncher<ScanOptions> barcodeScanner = registerForActivityResult(
@@ -51,6 +54,7 @@ public final class MainActivity extends AppCompatActivity {
     private TextView modeBanner;
     private MaterialToolbar toolbar;
     private boolean showingArchived;
+    private boolean destroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -106,6 +110,7 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
         io.shutdownNow();
         super.onDestroy();
     }
@@ -118,9 +123,11 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void loadShipments() {
+        int generation = loadGeneration.incrementAndGet();
         io.execute(() -> {
             List<Shipment> shipments = repository.listShipments(showingArchived);
             runOnUiThread(() -> {
+                if (!isUiActive() || generation != loadGeneration.get()) return;
                 adapter.submit(shipments);
                 recycler.setVisibility(shipments.isEmpty() ? View.GONE : View.VISIBLE);
                 empty.setVisibility(shipments.isEmpty() ? View.VISIBLE : View.GONE);
@@ -134,46 +141,68 @@ public final class MainActivity extends AppCompatActivity {
         TextInputEditText tracking = view.findViewById(R.id.trackingInput);
         AutoCompleteTextView carrier = view.findViewById(R.id.carrierInput);
         carrier.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, CarrierDetector.carrierChoices()));
-        carrier.setText("Auto-detect", false);
+        carrier.setText(CarrierDetector.defaultChoice(), false);
         String extracted = TrackingTextExtractor.bestCandidate(prefilledTracking);
         tracking.setText(extracted.isEmpty() ? prefilledTracking : extracted);
 
+        AddShipmentFlow flow = new AddShipmentFlow();
         androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("Add package")
                 .setView(view)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Add", null)
                 .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String number = text(tracking);
-            if (!CarrierDetector.plausible(number)) {
-                tracking.setError("Enter a plausible tracking number");
-                return;
-            }
-            String packageName = text(name);
-            String carrierHint = carrier.getText() == null ? "Auto-detect" : carrier.getText().toString();
-            io.execute(() -> {
-                try {
-                    long id = repository.addShipment(packageName, number, carrierHint);
-                    repository.refresh(id);
-                    Shipment shipment = repository.getShipment(id);
-                    runOnUiThread(() -> {
-                        dialog.dismiss();
-                        loadShipments();
-                        openShipment(shipment);
-                    });
-                } catch (RuntimeException e) {
-                    runOnUiThread(() -> tracking.setError(e.getMessage()));
+        dialog.setOnCancelListener(ignored -> flow.cancelNavigation());
+        dialog.setOnDismissListener(ignored -> flow.cancelNavigation());
+        dialog.setOnShowListener(ignored -> {
+            Button addButton = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+            addButton.setOnClickListener(v -> {
+                String number = text(tracking);
+                if (!CarrierDetector.plausible(number)) {
+                    tracking.setError("Enter a plausible tracking number");
+                    return;
                 }
+                if (!flow.beginSubmit()) return;
+                addButton.setEnabled(false);
+                String packageName = text(name);
+                String carrierHint = CarrierDetector.normalizeChoice(carrier.getText());
+                io.execute(() -> {
+                    try {
+                        long id = repository.addShipment(packageName, number, carrierHint);
+                        Shipment shipment = repository.getShipment(id);
+                        runOnUiThread(() -> {
+                            if (!isUiActive()) {
+                                flow.cancelNavigation();
+                                return;
+                            }
+                            boolean navigate = flow.completeSubmit();
+                            if (dialog.isShowing()) dialog.dismiss();
+                            if (navigate) openShipment(shipment, true);
+                            else loadShipments();
+                        });
+                    } catch (RuntimeException e) {
+                        flow.failSubmit();
+                        runOnUiThread(() -> {
+                            if (!isUiActive()) return;
+                            addButton.setEnabled(true);
+                            tracking.setError(e.getMessage());
+                        });
+                    }
+                });
             });
-        }));
+        });
         dialog.show();
     }
 
     private void openShipment(Shipment shipment) {
-        if (shipment == null) return;
+        openShipment(shipment, false);
+    }
+
+    private void openShipment(Shipment shipment, boolean autoRefresh) {
+        if (shipment == null || !isUiActive()) return;
         startActivity(new Intent(this, ShipmentDetailActivity.class)
-                .putExtra(ShipmentDetailActivity.EXTRA_SHIPMENT_ID, shipment.id));
+                .putExtra(ShipmentDetailActivity.EXTRA_SHIPMENT_ID, shipment.id)
+                .putExtra(ShipmentDetailActivity.EXTRA_AUTO_REFRESH, autoRefresh));
     }
 
     private void refreshAll() {
@@ -184,6 +213,7 @@ public final class MainActivity extends AppCompatActivity {
             for (Shipment shipment : shipments) if (repository.refresh(shipment.id).success) successes++;
             int finalSuccesses = successes;
             runOnUiThread(() -> {
+                if (!isUiActive()) return;
                 loadShipments();
                 Toast.makeText(this, "Updated " + finalSuccesses + " of " + shipments.size(), Toast.LENGTH_LONG).show();
             });
@@ -212,6 +242,10 @@ public final class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS);
         }
+    }
+
+    private boolean isUiActive() {
+        return !destroyed && !isFinishing() && !isDestroyed();
     }
 
     private static String text(TextInputEditText input) {

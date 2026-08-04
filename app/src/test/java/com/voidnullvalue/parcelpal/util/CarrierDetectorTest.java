@@ -20,6 +20,14 @@ public final class CarrierDetectorTest {
         assertTrue(CarrierDetector.plausible("92612999998771000123456789"));
     }
 
+    @Test public void defaultsBlankOrUnknownCarrierChoiceToAutoDetect() {
+        assertEquals("Auto-detect", CarrierDetector.defaultChoice());
+        assertEquals("Auto-detect", CarrierDetector.normalizeChoice(null));
+        assertEquals("Auto-detect", CarrierDetector.normalizeChoice(""));
+        assertEquals("Auto-detect", CarrierDetector.normalizeChoice("not a carrier"));
+        assertEquals("USPS", CarrierDetector.normalizeChoice("usps"));
+    }
+
     @Test public void normalizesWhitespaceAndPunctuation() {
         assertEquals("1Z999AA10123456784", CarrierDetector.normalizeTrackingNumber("1Z 999-AA1 01 2345 6784"));
     }

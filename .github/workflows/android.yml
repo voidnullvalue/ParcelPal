@@ -118,7 +118,7 @@ jobs:
           cat > "$notes_file" <<EOF
           ParcelPal ${VERSION_NAME}
 
-          Fixes false tracking data from public aggregator pages, rejects generic labels such as Delivery time, prevents arbitrary JavaScript tokens from becoming linked tracking numbers, removes recursive linked-leg discovery, and purges previously stored bogus legs on refresh.
+          Fixes delayed refresh callbacks reopening package details after the user navigates back, prevents duplicate add submissions, makes Auto-detect the default carrier choice, and adds the ParcelPal mascot icon and home-screen background.
 
           Installable build for commit ${GITHUB_SHA}. The APK is signed with the Android debug key. Verify the attached SHA-256 file before installation.
           EOF
