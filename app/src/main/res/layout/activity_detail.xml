@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:title="Package" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView android:id="@+id/name" android:layout_width="match_parent" android:layout_height="wrap_content" android:textAppearance="?attr/textAppearanceHeadlineSmall" />
+            <TextView android:id="@+id/tracking" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:paddingTop="6dp" android:textIsSelectable="true" />
+            <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="18dp" android:textAppearance="?attr/textAppearanceTitleMedium" />
+            <TextView android:id="@+id/estimate" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:visibility="gone" />
+            <TextView android:id="@+id/source" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="8dp" />
+            <TextView android:id="@+id/legs" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:paddingTop="12dp" android:visibility="gone" />
+            <TextView android:id="@+id/error" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="8dp" android:textColor="?attr/colorError" />
+            <TextView android:id="@+id/networkAudit" android:layout_width="match_parent" android:layout_height="wrap_content" android:fontFamily="monospace" android:paddingTop="12dp" android:textSize="12sp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="16dp">
+                <com.google.android.material.button.MaterialButton android:id="@+id/refreshButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Refresh" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/editButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:text="Edit" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/archiveButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:text="Archive" />
+            </LinearLayout>
+            <com.google.android.material.button.MaterialButton android:id="@+id/deleteButton" style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:text="Delete permanently" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="16dp" android:text="Timeline" android:textAppearance="?attr/textAppearanceTitleLarge" />
+            <LinearLayout android:id="@+id/timeline" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="8dp" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

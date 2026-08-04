@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:title="Settings" />
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Tracking sources" android:textAppearance="?attr/textAppearanceTitleLarge" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="Sources are tried in order and stop after a usable response. Each contacted source receives only that tracking number, your IP address, and normal HTTP metadata." />
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/directSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="12dp" android:text="Carrier-owned public pages" />
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/parcelsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ParcelsApp fallback" />
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/postalNinjaSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Postal Ninja fallback" />
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/trackGlobalSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Track.Global fallback" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="24dp" android:text="Updates" android:textAppearance="?attr/textAppearanceTitleLarge" />
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/backgroundSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Background refresh every 6 hours" />
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/deliveredOnlySwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Notify only when delivered" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="24dp" android:text="Local backup" android:textAppearance="?attr/textAppearanceTitleLarge" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="Export package names, tracking numbers, linked legs, and timelines. A password encrypts the file with AES-256-GCM; leaving it blank exports readable JSON." />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="12dp">
+                <com.google.android.material.button.MaterialButton android:id="@+id/exportButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Export" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/importButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:text="Import" />
+            </LinearLayout>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="24dp" android:text="Privacy" android:textAppearance="?attr/textAppearanceTitleLarge" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="No account, advertising ID, analytics, Firebase, telemetry, cloud backup, contacts, location, email access, or ParcelPal-operated server. The camera permission is used only when you choose Scan barcode. HTTPS and per-source hostname allowlists are enforced." />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

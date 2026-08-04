@@ -1,0 +1,106 @@
+{
+  "schema": 2,
+  "sources": [
+    {
+      "id": "usps",
+      "name": "USPS",
+      "kind": "direct",
+      "carriers": ["USPS"],
+      "hosts": ["tools.usps.com"],
+      "url": "https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
+    },
+    {
+      "id": "ups",
+      "name": "UPS",
+      "kind": "direct",
+      "carriers": ["UPS"],
+      "hosts": ["www.ups.com"],
+      "url": "https://www.ups.com/track?loc=en_US&tracknum={tracking}"
+    },
+    {
+      "id": "fedex",
+      "name": "FedEx",
+      "kind": "direct",
+      "carriers": ["FedEx"],
+      "hosts": ["www.fedex.com"],
+      "url": "https://www.fedex.com/fedextrack/?trknbr={tracking}"
+    },
+    {
+      "id": "dhl",
+      "name": "DHL",
+      "kind": "direct",
+      "carriers": ["DHL", "DHL Express", "DHL eCommerce"],
+      "hosts": ["www.dhl.com"],
+      "url": "https://www.dhl.com/us-en/home/tracking.html?tracking-id={tracking}"
+    },
+    {
+      "id": "ontrac",
+      "name": "OnTrac",
+      "kind": "direct",
+      "carriers": ["OnTrac", "LaserShip"],
+      "hosts": ["www.ontrac.com"],
+      "url": "https://www.ontrac.com/tracking/?number={tracking}"
+    },
+    {
+      "id": "canada_post",
+      "name": "Canada Post",
+      "kind": "direct",
+      "carriers": ["Canada Post"],
+      "hosts": ["www.canadapost-postescanada.ca"],
+      "url": "https://www.canadapost-postescanada.ca/track-reperage/en#/details/{tracking}"
+    },
+    {
+      "id": "royal_mail",
+      "name": "Royal Mail",
+      "kind": "direct",
+      "carriers": ["Royal Mail"],
+      "hosts": ["www.royalmail.com"],
+      "url": "https://www.royalmail.com/track-your-item#/tracking-results/{tracking}"
+    },
+    {
+      "id": "australia_post",
+      "name": "Australia Post",
+      "kind": "direct",
+      "carriers": ["Australia Post"],
+      "hosts": ["auspost.com.au"],
+      "url": "https://auspost.com.au/mypost/track/#/details/{tracking}"
+    },
+    {
+      "id": "yunexpress",
+      "name": "YunExpress",
+      "kind": "direct",
+      "carriers": ["YunExpress"],
+      "hosts": ["www.yuntrack.com"],
+      "url": "https://www.yuntrack.com/parcelTracking?id={tracking}"
+    },
+    {
+      "id": "uniuni",
+      "name": "UniUni",
+      "kind": "direct",
+      "carriers": ["UniUni"],
+      "hosts": ["www.uniuni.com"],
+      "url": "https://www.uniuni.com/tracking/?tracking_number={tracking}"
+    },
+    {
+      "id": "parcelsapp",
+      "name": "ParcelsApp",
+      "kind": "aggregator",
+      "hosts": ["parcelsapp.com"],
+      "url": "https://parcelsapp.com/en/tracking/{tracking}"
+    },
+    {
+      "id": "postal_ninja",
+      "name": "Postal Ninja",
+      "kind": "aggregator",
+      "hosts": ["postal.ninja"],
+      "url": "https://postal.ninja/en/track/{tracking}"
+    },
+    {
+      "id": "track_global",
+      "name": "Track.Global",
+      "kind": "aggregator",
+      "hosts": ["track.global"],
+      "url": "https://track.global/en/track/{tracking}"
+    }
+  ]
+}
