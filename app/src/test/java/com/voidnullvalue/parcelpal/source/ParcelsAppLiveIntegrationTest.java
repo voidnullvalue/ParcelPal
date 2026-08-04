@@ -23,7 +23,14 @@ public final class ParcelsAppLiveIntegrationTest {
                 Collections.emptySet()
         );
         ParcelsAppWebSource source = new ParcelsAppWebSource(recipe, new ParcelsAppJsonParser());
-        TrackingResult result = source.fetch(new TrackingTarget(trackingNumber, "USPS"));
+        final TrackingResult result;
+        try {
+            result = source.fetch(new TrackingTarget(trackingNumber, "USPS"));
+        } catch (ParcelsAppJsonParser.ResponseException error) {
+            System.err.println("LIVE_PROTOCOL_ERROR_CODE=" + error.code);
+            System.err.println("LIVE_PROTOCOL_ERROR_MESSAGE=" + error.getMessage());
+            throw error;
+        }
 
         assertTrue("Expected a credible live USPS result", result.isUseful());
         assertFalse("Expected at least one live USPS tracking event", result.events.isEmpty());
