@@ -2,7 +2,6 @@ package com.voidnullvalue.parcelpal.source;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Handler;
 import android.os.Looper;
@@ -63,7 +62,7 @@ public final class UspsBrowserSource implements TrackingSource {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw new IOException("USPS browser lookup cannot run on the UI thread");
         }
-        String encoded = URLEncoder.encode(target.trackingNumber, StandardCharsets.UTF_8)
+        String encoded = URLEncoder.encode(target.trackingNumber, StandardCharsets.UTF_8.name())
                 .replace("+", "%20");
         String url = recipe.urlTemplate.replace("{tracking}", encoded);
         BrowserSession session = new BrowserSession(context, url, extractionScript);
@@ -89,16 +88,7 @@ public final class UspsBrowserSource implements TrackingSource {
     }
 
     static boolean isAllowedUrl(String rawUrl) {
-        if (rawUrl == null || rawUrl.trim().isEmpty()) return false;
-        Uri uri = Uri.parse(rawUrl);
-        String scheme = uri.getScheme();
-        if ("about".equalsIgnoreCase(scheme) || "data".equalsIgnoreCase(scheme) ||
-                "blob".equalsIgnoreCase(scheme)) return true;
-        if (!"https".equalsIgnoreCase(scheme)) return false;
-        String host = uri.getHost();
-        if (host == null) return false;
-        String normalized = host.toLowerCase(java.util.Locale.US);
-        return normalized.equals("usps.com") || normalized.endsWith(".usps.com");
+        return UspsUrlPolicy.isAllowed(rawUrl);
     }
 
     private static String readAsset(Context context, String name) {
@@ -141,7 +131,6 @@ public final class UspsBrowserSource implements TrackingSource {
             this.extractionScript = extractionScript;
         }
 
-        @SuppressLint("SetJavaScriptEnabled")
         void start() {
             if (done.get()) return;
             try {
@@ -168,7 +157,6 @@ public final class UspsBrowserSource implements TrackingSource {
                 WebSettings settings = webView.getSettings();
                 settings.setJavaScriptEnabled(true);
                 settings.setDomStorageEnabled(true);
-                settings.setDatabaseEnabled(false);
                 settings.setGeolocationEnabled(false);
                 settings.setAllowFileAccess(false);
                 settings.setAllowContentAccess(false);
@@ -176,8 +164,6 @@ public final class UspsBrowserSource implements TrackingSource {
                 settings.setSupportMultipleWindows(false);
                 settings.setMediaPlaybackRequiresUserGesture(true);
                 settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-                settings.setLoadsImagesAutomatically(false);
-                settings.setBlockNetworkImage(true);
                 settings.setSaveFormData(false);
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
                 WebView.startSafeBrowsing(context, null);
@@ -266,31 +252,33 @@ public final class UspsBrowserSource implements TrackingSource {
         private final class LockedWebViewClient extends WebViewClient {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return !isAllowedUrl(request.getUrl().toString());
+                return !UspsUrlPolicy.isAllowed(request.getUrl().toString());
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public boolean shouldOverrideUrlLoading(WebView view, String targetUrl) {
-                return !isAllowedUrl(targetUrl);
+                return !UspsUrlPolicy.isAllowed(targetUrl);
             }
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                if (isAllowedUrl(request.getUrl().toString())) return super.shouldInterceptRequest(view, request);
+                if (UspsUrlPolicy.isAllowed(request.getUrl().toString())) {
+                    return super.shouldInterceptRequest(view, request);
+                }
                 return blockedResponse();
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public WebResourceResponse shouldInterceptRequest(WebView view, String targetUrl) {
-                if (isAllowedUrl(targetUrl)) return super.shouldInterceptRequest(view, targetUrl);
+                if (UspsUrlPolicy.isAllowed(targetUrl)) return super.shouldInterceptRequest(view, targetUrl);
                 return blockedResponse();
             }
 
             @Override
             public void onPageFinished(WebView view, String loadedUrl) {
-                if (!isAllowedUrl(loadedUrl)) {
+                if (!UspsUrlPolicy.isAllowed(loadedUrl)) {
                     finishError("USPS redirected to an unapproved host");
                     return;
                 }
