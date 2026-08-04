@@ -29,8 +29,8 @@ final class UspsDomParser {
     private static final Pattern TIMESTAMP = Pattern.compile(
             "(?i)(January|February|March|April|May|June|July|August|September|October|November|December)" +
                     "\\s+\\d{1,2},\\s+\\d{4}(?:,\\s+\\d{1,2}:\\d{2}\\s*[ap]m)?");
-    private static final Pattern LOCATION = Pattern.compile(
-            "^[A-Z0-9][A-Z0-9 .,'&/()\\-]+(?:,\\s*)?[A-Z]{2}(?:\\s+\\d{5}(?:-\\d{4})?)?$");
+    private static final Pattern STATE_CODE = Pattern.compile(
+            "\\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC|PR|VI|GU|AS|MP)\\b");
     private static final DateTimeFormatter DATE_TIME = new DateTimeFormatterBuilder()
             .parseCaseInsensitive()
             .appendPattern("MMMM d, uuuu, h:mm a")
@@ -110,7 +110,7 @@ final class UspsDomParser {
                     timestampText = timestamp.group();
                     String remainder = clean(line.substring(0, timestamp.start()) + " " + line.substring(timestamp.end()));
                     if (!remainder.isEmpty()) descriptionLines.add(remainder);
-                } else if (location.isEmpty() && LOCATION.matcher(line).matches()) {
+                } else if (location.isEmpty() && isLocation(line)) {
                     location = line;
                 } else if (!line.equalsIgnoreCase(status)) {
                     descriptionLines.add(line);
@@ -124,6 +124,14 @@ final class UspsDomParser {
             TrackingEvent event = event(trackingNumber, sourceName, description, location, eventTime);
             if (seen.add(event.eventKey)) result.events.add(event);
         }
+    }
+
+    private static boolean isLocation(String line) {
+        if (!line.equals(line.toUpperCase(Locale.US))) return false;
+        String upper = line.toUpperCase(Locale.US);
+        return STATE_CODE.matcher(upper).find() || upper.contains("DISTRIBUTION CENTER") ||
+                upper.contains("POST OFFICE") || upper.contains("PROCESSING CENTER") ||
+                upper.contains("USPS FACILITY");
     }
 
     private static void addDetailEvents(TrackingResult result, JSONArray details, String trackingNumber, String sourceName) {
@@ -196,7 +204,7 @@ final class UspsDomParser {
     }
 
     private static String cleanBlock(String value) {
-        return value == null ? "" : value.replace("\\r\\n", "\\n").replace('\\r', '\\n').trim();
+        return value == null ? "" : value.replace("\r\n", "\n").replace('\r', '\n').trim();
     }
 
     private static String clean(String value) {
