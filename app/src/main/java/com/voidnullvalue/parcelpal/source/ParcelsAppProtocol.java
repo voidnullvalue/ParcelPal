@@ -41,6 +41,7 @@ final class ParcelsAppProtocol {
             case "cainiao" -> "cainiao";
             case "4px" -> "4px";
             case "uniuni" -> "uniuni";
+            case "1st" -> "1st";
             default -> "";
         };
     }
