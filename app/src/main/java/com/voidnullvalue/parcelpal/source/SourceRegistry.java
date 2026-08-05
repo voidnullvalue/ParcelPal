@@ -24,6 +24,7 @@ public final class SourceRegistry {
     private final SafeHttpClient http = new SafeHttpClient();
     private final HeuristicTrackingParser parser = new HeuristicTrackingParser();
     private final ParcelsAppJsonParser parcelsAppParser = new ParcelsAppJsonParser();
+    private final PackyJsonParser packyParser = new PackyJsonParser();
     private final UspsDomParser uspsParser = new UspsDomParser();
     private final List<SourceRecipe> recipes;
 
@@ -43,6 +44,8 @@ public final class SourceRegistry {
                 source = new UspsBrowserSource(context, recipe, uspsParser);
             } else if ("parcelsapp".equals(recipe.id)) {
                 source = new ParcelsAppWebSource(recipe, parcelsAppParser);
+            } else if ("packy_1st".equals(recipe.id)) {
+                source = new PackyTrackingSource(recipe, http, packyParser);
             } else {
                 source = new GenericHtmlSource(recipe, http, parser);
             }
