@@ -15,6 +15,7 @@ public final class ParcelsAppProtocolTest {
     @Test public void mapsDetectedCarrierToParcelsSlug() {
         assertEquals("usps", ParcelsAppProtocol.carrierSlug("USPS"));
         assertEquals("fedex", ParcelsAppProtocol.carrierSlug("FedEx"));
+        assertEquals("1st", ParcelsAppProtocol.carrierSlug("1ST"));
         assertEquals("", ParcelsAppProtocol.carrierSlug("Auto-detect"));
     }
 }

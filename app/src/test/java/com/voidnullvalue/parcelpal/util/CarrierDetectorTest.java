@@ -13,6 +13,7 @@ public final class CarrierDetectorTest {
         assertEquals("DHL eCommerce", CarrierDetector.detect("GM123456789012345678"));
         assertEquals("Amazon Logistics", CarrierDetector.detect("TBA123456789012"));
         assertEquals("Royal Mail", CarrierDetector.detect("AA123456789GB"));
+        assertEquals("1ST", CarrierDetector.detect("1ST06013631493"));
     }
 
     @Test public void acceptsLongUspsHandoffNumbers() {
@@ -26,6 +27,7 @@ public final class CarrierDetectorTest {
         assertEquals("Auto-detect", CarrierDetector.normalizeChoice(""));
         assertEquals("Auto-detect", CarrierDetector.normalizeChoice("not a carrier"));
         assertEquals("USPS", CarrierDetector.normalizeChoice("usps"));
+        assertEquals("1ST", CarrierDetector.normalizeChoice("1st"));
     }
 
     @Test public void normalizesWhitespaceAndPunctuation() {
