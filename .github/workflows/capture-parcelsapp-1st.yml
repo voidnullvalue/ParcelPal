@@ -21,19 +21,16 @@ jobs:
           node-version: 22
       - name: Install browser client
         run: npm install --no-save playwright-core@1.55.0
-      - name: Capture ParcelsApp request
-        run: node tools/capture-parcelsapp-1st.mjs
-      - name: Capture official 1ST request
-        run: node tools/capture-1st-official.mjs
+      - name: Capture active 1ST aggregator requests
+        run: node tools/capture-1st-aggregators.mjs
       - name: Upload captures
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: 1st-tracking-captures
+          name: 1st-aggregator-captures
           path: |
-            /tmp/parcelsapp-1st-capture.txt
-            /tmp/parcelsapp-1st.png
-            /tmp/1st-official-capture.txt
-            /tmp/1st-official.png
+            /tmp/1st-aggregators-capture.txt
+            /tmp/trackglobal.png
+            /tmp/packy.png
           if-no-files-found: warn
           retention-days: 1
