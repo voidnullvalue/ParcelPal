@@ -7,9 +7,10 @@
 3. `SourceRegistry` loads allowlisted source recipes from `assets/sources.json`.
 4. `ShipmentRepository` tries matching carrier-owned sources followed by enabled aggregators.
 5. Generic sources use `SafeHttpClient`, which enforces HTTPS, exact hostname allowlists, bounded redirects, timeouts, and a 3 MB response cap.
-6. ParcelsApp uses its structured first-party JSON web protocol.
-7. USPS uses an offscreen Android System WebView because the official tracking result is browser-rendered. `UspsUrlPolicy` blocks every non-USPS request, `usps_extract.js` returns only the relevant DOM fields, and `UspsDomParser` converts them to the common tracking model.
-8. Events and linked legs are written locally. The package's displayed status is selected from the most recently timestamped successful leg.
+6. Detected 1ST Group numbers use Packy's structured JSON tracking endpoint before the general aggregator fallbacks.
+7. ParcelsApp uses its structured first-party JSON web protocol.
+8. USPS uses an offscreen Android System WebView because the official tracking result is browser-rendered. `UspsUrlPolicy` blocks every non-USPS request, `usps_extract.js` returns only the relevant DOM fields, and `UspsDomParser` converts them to the common tracking model.
+9. Events and linked legs are written locally. The package's displayed status is selected from the most recently timestamped successful leg.
 
 ## Components
 
@@ -17,6 +18,8 @@
 - `data/ShipmentRepository`: refresh orchestration, source fallback, linked-leg refresh, and aggregate status selection.
 - `source/SourceRegistry`: data-driven source configuration and source-specific client selection.
 - `source/GenericHtmlSource`: constrained HTTP fetch plus parsing.
+- `source/PackyTrackingSource`: cookie-free, hostname-restricted JSON lookup for the verified 1ST Group format.
+- `source/PackyJsonParser`: validates the returned tracking number and converts Packy events into the common timeline model.
 - `source/ParcelsAppWebSource`: ephemeral first-party session and structured JSON tracking request.
 - `source/UspsBrowserSource`: ephemeral offscreen WebView for the first-party USPS tracking page.
 - `source/UspsUrlPolicy`: HTTPS and `usps.com`-subdomain network boundary.
@@ -36,4 +39,4 @@ The USPS source is invoked from the repository's background refresh path. It cre
 
 ## Source maintenance
 
-A source recipe defines its ID, display name, kind, URL template, allowed hosts, and supported carrier names. Source-specific protocols and DOM formats can change, so parser fixtures, extraction contracts, and source recipes must be updated together. Live USPS verification uses the same `usps_extract.js` file as the Android source while blocking every non-USPS network request.
+A source recipe defines its ID, display name, kind, URL template, allowed hosts, and supported carrier names. Source-specific protocols and DOM formats can change, so parser fixtures, extraction contracts, and source recipes must be updated together. Live 1ST verification invokes the exact production Packy adapter against a public sample. Live USPS verification uses the same `usps_extract.js` file as the Android source while blocking every non-USPS network request.
