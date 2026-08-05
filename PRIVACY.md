@@ -17,6 +17,8 @@ Android cloud backup and device-transfer backup are disabled for the database an
 
 For each enabled source attempted, the source receives the queried tracking number, carrier hint when applicable, the phone's public IP address, request timing, and standard HTTP headers. ParcelPal never sends the package nickname or a batch list of all saved packages.
 
+The Packy adapter is limited to detected 1ST Group tracking numbers. It makes one HTTPS JSON request to `packyapp.com` for the individual tracking number, does not enable cookies, and parses only the returned carrier status and timeline fields.
+
 The ParcelsApp adapter creates a first-party web session by requesting `parcelsapp.com`, then uses the returned CSRF token and session cookie to submit one structured tracking request to that same hostname. The cookie is held only in memory inside the lookup client and is discarded when the lookup finishes. ParcelPal does not retain it, expose it to other sources, or use it to identify the user across lookups.
 
 The USPS adapter uses Android System WebView because the first-party USPS tracking page requires browser-rendered JavaScript. It allows HTTPS requests only to `usps.com` and its subdomains. Third-party resources, including advertising and externally hosted fonts, are blocked. Third-party cookies, file access, content-provider access, mixed content, geolocation, popups, multiple windows, and JavaScript interfaces are disabled. After extraction, ParcelPal clears the first-party cookies, cache, and history and destroys the WebView. The browser is not shown to the user and its state is not reused.
