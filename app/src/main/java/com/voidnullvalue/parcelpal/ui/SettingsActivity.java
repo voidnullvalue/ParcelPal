@@ -51,12 +51,14 @@ public final class SettingsActivity extends AppCompatActivity {
 
         SourcePreferences preferences = new SourcePreferences(this);
         MaterialSwitch direct = findViewById(R.id.directSwitch);
+        MaterialSwitch packy = findViewById(R.id.packySwitch);
         MaterialSwitch parcels = findViewById(R.id.parcelsSwitch);
         MaterialSwitch postalNinja = findViewById(R.id.postalNinjaSwitch);
         MaterialSwitch trackGlobal = findViewById(R.id.trackGlobalSwitch);
         MaterialSwitch background = findViewById(R.id.backgroundSwitch);
         MaterialSwitch deliveredOnly = findViewById(R.id.deliveredOnlySwitch);
         direct.setChecked(preferences.directEnabled());
+        packy.setChecked(preferences.packyEnabled());
         parcels.setChecked(preferences.parcelsEnabled());
         postalNinja.setChecked(preferences.postalNinjaEnabled());
         trackGlobal.setChecked(preferences.trackGlobalEnabled());
@@ -64,6 +66,7 @@ public final class SettingsActivity extends AppCompatActivity {
         deliveredOnly.setChecked(preferences.notifyDeliveredOnly());
 
         direct.setOnCheckedChangeListener((v, checked) -> preferences.setDirectEnabled(checked));
+        packy.setOnCheckedChangeListener((v, checked) -> preferences.setPackyEnabled(checked));
         parcels.setOnCheckedChangeListener((v, checked) -> preferences.setParcelsEnabled(checked));
         postalNinja.setOnCheckedChangeListener((v, checked) -> preferences.setPostalNinjaEnabled(checked));
         trackGlobal.setOnCheckedChangeListener((v, checked) -> preferences.setTrackGlobalEnabled(checked));
