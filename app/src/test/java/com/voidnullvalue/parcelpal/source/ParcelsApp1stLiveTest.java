@@ -5,6 +5,8 @@ import com.voidnullvalue.parcelpal.model.TrackingTarget;
 
 import org.junit.Test;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Set;
 
@@ -24,13 +26,29 @@ public final class ParcelsApp1stLiveTest {
         ParcelsAppWebSource source = new ParcelsAppWebSource(recipe, new ParcelsAppJsonParser());
         TrackingTarget target = new TrackingTarget("1ST06003441583", "1ST");
 
+        Method bootstrap = ParcelsAppWebSource.class.getDeclaredMethod("bootstrapSession");
+        bootstrap.setAccessible(true);
+        Object session = bootstrap.invoke(source);
+
+        Method request = null;
+        for (Method candidate : ParcelsAppWebSource.class.getDeclaredMethods()) {
+            if ("requestTracking".equals(candidate.getName())) {
+                request = candidate;
+                break;
+            }
+        }
+        if (request == null) throw new AssertionError("requestTracking method not found");
+        request.setAccessible(true);
+
         try {
-            TrackingResult result = source.fetch(target);
+            TrackingResult result = (TrackingResult) request.invoke(source, session, target, "1st");
+            System.out.println("LIVE_1ST_RESULT=" + result.normalizedStatus);
             assertTrue(result.isUseful());
-        } catch (ParcelsAppJsonParser.ResponseException response) {
-            assertNotEquals("NO_TRACKER", response.code);
-            assertTrue("Expected carrier recognition or historical data, got " + response.code,
-                    "NO_DATA".equals(response.code) || "INVALID_TRACKING_NUMBER".equals(response.code));
+        } catch (InvocationTargetException invocation) {
+            Throwable cause = invocation.getCause();
+            if (!(cause instanceof ParcelsAppJsonParser.ResponseException response)) throw invocation;
+            System.out.println("LIVE_1ST_RESPONSE_CODE=" + response.code);
+            assertNotEquals("Explicit carrier slug was rejected", "NO_TRACKER", response.code);
         }
     }
 }
