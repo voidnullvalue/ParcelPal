@@ -11,7 +11,7 @@ public final class CarrierDetector {
     private static final List<String> CARRIERS = Collections.unmodifiableList(Arrays.asList(
             AUTO_DETECT, "USPS", "UPS", "FedEx", "DHL", "DHL Express", "DHL eCommerce",
             "Amazon Logistics", "OnTrac", "LaserShip", "Canada Post", "Royal Mail",
-            "Australia Post", "International Post", "YunExpress", "Cainiao", "4PX", "UniUni"
+            "Australia Post", "International Post", "YunExpress", "Cainiao", "4PX", "UniUni", "1ST"
     ));
 
     private CarrierDetector() {}
@@ -37,6 +37,7 @@ public final class CarrierDetector {
 
     public static String detect(String raw) {
         String n = normalizeTrackingNumber(raw);
+        if (n.matches("1ST[0-9]{11}")) return "1ST";
         if (n.matches("1Z[0-9A-Z]{16}")) return "UPS";
         if (n.matches("TBA[0-9]{12,}")) return "Amazon Logistics";
         if (n.matches("(?:D1|C1)[0-9A-Z]{12,}")) return "OnTrac";
