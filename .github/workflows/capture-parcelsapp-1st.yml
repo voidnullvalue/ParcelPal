@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - research/1st-live-validation
+  pull_request:
+    branches:
+      - fix/1st-carrier-detection
 
 permissions:
   contents: read
