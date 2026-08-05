@@ -82,6 +82,14 @@
       "url": "https://www.uniuni.com/tracking/?tracking_number={tracking}"
     },
     {
+      "id": "packy_1st",
+      "name": "Packy",
+      "kind": "aggregator",
+      "carriers": ["1ST"],
+      "hosts": ["packyapp.com"],
+      "url": "https://packyapp.com/api/tracking/{tracking}"
+    },
+    {
       "id": "parcelsapp",
       "name": "ParcelsApp",
       "kind": "aggregator",
