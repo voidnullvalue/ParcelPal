@@ -1,0 +1,32 @@
+name: Capture ParcelsApp 1ST request
+
+on:
+  push:
+    branches:
+      - research/1st-live-validation
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install browser client
+        run: npm install --no-save playwright-core@1.55.0
+      - name: Capture current 1ST browser request
+        run: node tools/capture-parcelsapp-1st.mjs
+      - name: Upload capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: parcelsapp-1st-capture
+          path: |
+            /tmp/parcelsapp-1st-capture.txt
+            /tmp/parcelsapp-1st.png
+          if-no-files-found: warn
+          retention-days: 1
