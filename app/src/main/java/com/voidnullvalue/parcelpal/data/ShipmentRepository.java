@@ -72,8 +72,11 @@ public final class ShipmentRepository {
         List<String> errors = new ArrayList<>();
         List<TargetSuccess> successes = new ArrayList<>();
 
-        TrackingTarget rootTarget = new TrackingTarget(shipment.trackingNumber,
-                normalizedCarrier(shipment.trackingNumber, shipment.carrierHint));
+        String rootCarrier = normalizedCarrier(shipment.trackingNumber, shipment.carrierHint);
+        if (isAutoCarrier(shipment.carrierHint) && !CarrierDetector.AUTO_DETECT.equalsIgnoreCase(rootCarrier)) {
+            database.updateShipmentCarrier(shipmentId, rootCarrier);
+        }
+        TrackingTarget rootTarget = new TrackingTarget(shipment.trackingNumber, rootCarrier);
         TargetFetch rootFetch = fetchTarget(rootTarget, attempts, errors);
         if (rootFetch.result != null) {
             TrackingResult result = rootFetch.result;
@@ -194,10 +197,13 @@ public final class ShipmentRepository {
     }
 
     private static String normalizedCarrier(String trackingNumber, String requested) {
-        if (requested == null || requested.trim().isEmpty() || "Auto-detect".equalsIgnoreCase(requested)) {
-            return CarrierDetector.detect(trackingNumber);
-        }
+        if (isAutoCarrier(requested)) return CarrierDetector.detect(trackingNumber);
         return requested.trim();
+    }
+
+    private static boolean isAutoCarrier(String carrier) {
+        return carrier == null || carrier.trim().isEmpty() ||
+                CarrierDetector.AUTO_DETECT.equalsIgnoreCase(carrier.trim());
     }
 
     private static String safeCarrier(String parsed, String fallback) {
