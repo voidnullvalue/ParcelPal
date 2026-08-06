@@ -4,6 +4,7 @@ import com.voidnullvalue.parcelpal.model.TrackingTarget;
 import com.voidnullvalue.parcelpal.util.CarrierDetector;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.Test;
 
@@ -115,7 +116,8 @@ public final class SourceManifestTest {
                         item.optInt("trust", 0)));
             }
             return recipes;
-        } catch (IOException unreadable) {
+        } catch (IOException | JSONException unreadable) {
+            // Android's org.json declares JSONException as checked, unlike the desktop artifact.
             throw new IllegalStateException("Could not read sources.json", unreadable);
         }
     }
