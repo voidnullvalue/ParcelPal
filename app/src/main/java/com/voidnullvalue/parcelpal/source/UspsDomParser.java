@@ -25,7 +25,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class UspsDomParser {
+final class UspsDomParser implements BrowserExtractionParser {
     private static final Pattern TIMESTAMP = Pattern.compile(
             "(?i)(January|February|March|April|May|June|July|August|September|October|November|December)" +
                     "\\s+\\d{1,2},\\s+\\d{4}(?:,\\s+\\d{1,2}:\\d{2}\\s*[ap]m)?");
@@ -40,7 +40,8 @@ final class UspsDomParser {
             .appendPattern("MMMM d, uuuu")
             .toFormatter(Locale.US);
 
-    TrackingResult parse(String json, TrackingTarget target, String sourceId, String sourceName) throws IOException {
+    @Override
+    public TrackingResult parse(String json, TrackingTarget target, String sourceId, String sourceName) throws IOException {
         final JSONObject root;
         try {
             root = new JSONObject(json);

@@ -10,12 +10,19 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-public final class PackyTrackingSource implements TrackingSource {
+/**
+ * Cookie-free JSON lookup against Cainiao's global tracking endpoint.
+ *
+ * <p>The endpoint takes the tracking number as a query parameter and needs no session, key, or
+ * browser. It is the only source that reports origin-side scans for AliExpress consignments, which
+ * is why it runs alongside the number's issuing carrier rather than as a fallback behind it.
+ */
+public final class CainiaoTrackingSource implements TrackingSource {
     private final SourceRecipe recipe;
     private final SafeHttpClient httpClient;
-    private final PackyJsonParser parser;
+    private final CainiaoJsonParser parser;
 
-    public PackyTrackingSource(SourceRecipe recipe, SafeHttpClient httpClient, PackyJsonParser parser) {
+    public CainiaoTrackingSource(SourceRecipe recipe, SafeHttpClient httpClient, CainiaoJsonParser parser) {
         this.recipe = recipe;
         this.httpClient = httpClient;
         this.parser = parser;
@@ -31,15 +38,12 @@ public final class PackyTrackingSource implements TrackingSource {
     @Override
     public TrackingResult fetch(TrackingTarget target) throws IOException {
         String trackingNumber = CarrierDetector.normalizeTrackingNumber(target.trackingNumber);
-        if (!trackingNumber.matches("1ST[0-9]{11}")) {
-            throw new IOException("Unsupported 1ST tracking-number format");
-        }
+        if (trackingNumber.isEmpty()) throw new IOException("Cainiao requires a tracking number");
 
-        String url = recipe.url(trackingNumber);
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Accept", "application/json");
-        headers.put("Referer", "https://packyapp.com/en/carriers/1st");
-        SafeHttpClient.HttpResponse response = httpClient.get(url, recipe.hosts, headers);
+        headers.put("Accept", "application/json, text/plain, */*");
+        headers.put("Referer", "https://global.cainiao.com/newDetail.htm?mailNoList=" + trackingNumber);
+        SafeHttpClient.HttpResponse response = httpClient.get(recipe.url(trackingNumber), recipe.hosts, headers);
         return parser.parse(response.body, trackingNumber, recipe.id, recipe.name);
     }
 }

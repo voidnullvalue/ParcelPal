@@ -23,12 +23,13 @@ public final class GenericHtmlSource implements TrackingSource {
     @Override public String displayName() { return recipe.name; }
     @Override public String kind() { return recipe.kind; }
     @Override public Set<String> allowedHosts() { return recipe.hosts; }
-    @Override public boolean supports(TrackingTarget target) { return recipe.supportsCarrier(target.carrierHint); }
+    @Override public int trust() { return recipe.trust; }
+    @Override public boolean supports(TrackingTarget target) { return recipe.supportsAny(target.carrierCandidates); }
 
     @Override
     public TrackingResult fetch(TrackingTarget target) throws IOException {
         String encoded = URLEncoder.encode(target.trackingNumber, "UTF-8").replace("+", "%20");
-        String url = recipe.urlTemplate.replace("{tracking}", encoded);
+        String url = recipe.url(encoded);
         SafeHttpClient.HttpResponse response = httpClient.get(url, recipe.hosts);
         TrackingResult result = parser.parse(response.body, target.trackingNumber, recipe.id, recipe.name);
         if (!result.isUseful()) {

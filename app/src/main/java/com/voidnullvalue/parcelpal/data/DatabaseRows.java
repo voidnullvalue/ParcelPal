@@ -52,6 +52,7 @@ final class DatabaseRows {
         e.shipmentId = longValue(c, "shipment_id");
         e.trackingNumber = stringValue(c, "tracking_number");
         e.carrierName = stringValue(c, "carrier_name");
+        e.sourceId = stringValue(c, "source_id");
         e.sourceName = stringValue(c, "source_name");
         e.eventTime = longValue(c, "event_time");
         e.location = stringValue(c, "location");

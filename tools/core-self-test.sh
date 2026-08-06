@@ -6,6 +6,8 @@ trap 'rm -rf "$OUT"' EXIT
 javac -d "$OUT" \
   "$ROOT/app/src/main/java/com/voidnullvalue/parcelpal/util/CarrierDetector.java" \
   "$ROOT/app/src/main/java/com/voidnullvalue/parcelpal/util/StatusNormalizer.java" \
+  "$ROOT/app/src/main/java/com/voidnullvalue/parcelpal/util/TimelineMerger.java" \
+  "$ROOT/app/src/main/java/com/voidnullvalue/parcelpal/model/TrackingEvent.java" \
   "$ROOT/app/src/main/java/com/voidnullvalue/parcelpal/backup/BackupCodec.java" \
   "$ROOT/tools/CoreSelfTest.java"
 java -cp "$OUT" CoreSelfTest

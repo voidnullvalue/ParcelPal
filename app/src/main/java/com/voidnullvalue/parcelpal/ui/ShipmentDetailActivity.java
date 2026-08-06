@@ -1,7 +1,10 @@
 package com.voidnullvalue.parcelpal.ui;
 
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.format.DateFormat;
 import android.text.format.DateUtils;
@@ -16,6 +19,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.voidnullvalue.parcelpal.R;
@@ -23,7 +27,9 @@ import com.voidnullvalue.parcelpal.data.ShipmentRepository;
 import com.voidnullvalue.parcelpal.model.Shipment;
 import com.voidnullvalue.parcelpal.model.TrackingEvent;
 import com.voidnullvalue.parcelpal.model.TrackingLeg;
+import com.voidnullvalue.parcelpal.source.SourceRecipe;
 import com.voidnullvalue.parcelpal.util.CarrierDetector;
+import com.voidnullvalue.parcelpal.util.TimelineMerger;
 
 import java.util.Date;
 import java.util.List;
@@ -94,15 +100,17 @@ public final class ShipmentDetailActivity extends AppCompatActivity {
         if (!isUiActive()) return;
         io.execute(() -> {
             Shipment loaded = repository.getShipment(shipmentId);
-            List<TrackingEvent> events = repository.listEvents(shipmentId);
+            List<TimelineMerger.MergedEvent> events = repository.listMergedEvents(shipmentId);
             List<TrackingLeg> legs = repository.listLegs(shipmentId);
+            List<SourceRecipe> links = repository.linksFor(loaded);
             runOnUiThread(() -> {
-                if (isUiActive()) render(loaded, events, legs);
+                if (isUiActive()) render(loaded, events, legs, links);
             });
         });
     }
 
-    private void render(Shipment loaded, List<TrackingEvent> events, List<TrackingLeg> legs) {
+    private void render(Shipment loaded, List<TimelineMerger.MergedEvent> events, List<TrackingLeg> legs,
+                        List<SourceRecipe> links) {
         if (loaded == null) {
             finish();
             return;
@@ -141,15 +149,52 @@ public final class ShipmentDetailActivity extends AppCompatActivity {
         if (events.isEmpty()) {
             timeline.addView(makeTimelineText("No events stored yet.", false));
         } else {
-            for (TrackingEvent event : events) {
+            for (TimelineMerger.MergedEvent merged : events) {
+                TrackingEvent event = merged.event;
                 String when = event.eventTime == 0 ? "Time unavailable" :
                         DateFormat.getMediumDateFormat(this).format(new Date(event.eventTime)) + " " +
                                 DateFormat.getTimeFormat(this).format(new Date(event.eventTime));
-                String carrier = event.carrierName == null || event.carrierName.trim().isEmpty() ? "" : event.carrierName + " · ";
+                String carrier = merged.carrierNames.isEmpty() ? "" : String.join(" / ", merged.carrierNames) + " · ";
                 String leg = event.trackingNumber == null || event.trackingNumber.equals(loaded.trackingNumber) ? "" : "\n" + event.trackingNumber;
                 String location = event.location == null || event.location.trim().isEmpty() ? "" : "\n" + event.location;
-                timeline.addView(makeTimelineText(carrier + when + leg + "\n" + event.description + location, true));
+                String via = merged.sourceNames.isEmpty() ? "" : "\nvia " + String.join(", ", merged.sourceNames);
+                timeline.addView(makeTimelineText(carrier + when + leg + "\n" + event.description + location + via, true));
             }
+        }
+
+        renderLinks(links, loaded.trackingNumber);
+    }
+
+    /**
+     * Offers the carrier pages ParcelPal deliberately does not scrape. They render only in a full
+     * browser, so linking out is honest where a failing source row would not be.
+     */
+    private void renderLinks(List<SourceRecipe> links, String trackingNumber) {
+        LinearLayout container = findViewById(R.id.links);
+        View heading = findViewById(R.id.linksHeading);
+        View note = findViewById(R.id.linksNote);
+        container.removeAllViews();
+        boolean visible = links != null && !links.isEmpty();
+        heading.setVisibility(visible ? View.VISIBLE : View.GONE);
+        note.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (!visible) return;
+
+        for (SourceRecipe link : links) {
+            MaterialButton button = new MaterialButton(this, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            button.setText(link.name);
+            button.setOnClickListener(v -> openExternal(link.url(trackingNumber)));
+            container.addView(button);
+        }
+    }
+
+    private void openExternal(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (ActivityNotFoundException missingBrowser) {
+            Toast.makeText(this, "No browser is available to open that page", Toast.LENGTH_LONG).show();
         }
     }
 

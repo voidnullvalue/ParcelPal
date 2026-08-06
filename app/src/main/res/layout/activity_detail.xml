@@ -39,6 +39,10 @@
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="16dp" android:text="Timeline" android:textAppearance="?attr/textAppearanceTitleLarge" />
             <LinearLayout android:id="@+id/timeline" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="8dp" />
+
+            <TextView android:id="@+id/linksHeading" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="24dp" android:text="Open on a carrier site" android:textAppearance="?attr/textAppearanceTitleLarge" android:visibility="gone" />
+            <TextView android:id="@+id/linksNote" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="These pages only render in a full browser, so ParcelPal cannot read them for you." android:visibility="gone" />
+            <LinearLayout android:id="@+id/links" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="4dp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

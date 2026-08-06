@@ -93,7 +93,7 @@ final class DatabaseBackup {
     private static JSONObject eventToJson(TrackingEvent e) throws JSONException {
         return new JSONObject()
                 .put("trackingNumber", e.trackingNumber).put("carrierName", e.carrierName)
-                .put("sourceName", e.sourceName).put("eventTime", e.eventTime)
+                .put("sourceId", e.sourceId).put("sourceName", e.sourceName).put("eventTime", e.eventTime)
                 .put("location", e.location).put("description", e.description)
                 .put("rawStatus", e.rawStatus).put("eventKey", e.eventKey);
     }
@@ -146,6 +146,7 @@ final class DatabaseBackup {
         values.put("shipment_id", shipmentId);
         values.put("tracking_number", tracking);
         values.put("carrier_name", item.optString("carrierName"));
+        values.put("source_id", item.optString("sourceId"));
         values.put("source_name", item.optString("sourceName"));
         values.put("event_time", time);
         values.put("location", location);

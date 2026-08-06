@@ -9,6 +9,7 @@ public final class TrackingEvent {
     public long shipmentId;
     public String trackingNumber = "";
     public String carrierName = "";
+    public String sourceId = "";
     public String sourceName = "";
     public long eventTime;
     public String location = "";

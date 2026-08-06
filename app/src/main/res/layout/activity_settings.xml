@@ -14,12 +14,8 @@
     <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Tracking sources" android:textAppearance="?attr/textAppearanceTitleLarge" />
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="Sources are tried in order and stop after a usable response. Each contacted source receives only that tracking number, your IP address, and normal HTTP metadata." />
-            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/directSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="12dp" android:text="Carrier-owned public pages" />
-            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/packySwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Packy fallback for 1ST" />
-            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/parcelsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ParcelsApp fallback" />
-            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/postalNinjaSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Postal Ninja fallback" />
-            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/trackGlobalSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Track.Global fallback" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:text="Every enabled source that supports a tracking number is queried together, and their timelines are merged. Each contacted source receives only that tracking number, your IP address, and normal HTTP metadata. Turning a source off also deletes the events it contributed." />
+            <LinearLayout android:id="@+id/sourcesContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="12dp" />
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="24dp" android:text="Updates" android:textAppearance="?attr/textAppearanceTitleLarge" />
             <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/backgroundSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Background refresh every 6 hours" />

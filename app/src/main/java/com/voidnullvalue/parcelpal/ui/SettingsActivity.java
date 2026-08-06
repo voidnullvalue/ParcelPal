@@ -6,6 +6,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -18,7 +19,9 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 import com.voidnullvalue.parcelpal.R;
 import com.voidnullvalue.parcelpal.backup.BackupService;
 import com.voidnullvalue.parcelpal.data.DatabaseHelper;
+import com.voidnullvalue.parcelpal.data.ShipmentRepository;
 import com.voidnullvalue.parcelpal.data.SourcePreferences;
+import com.voidnullvalue.parcelpal.source.SourceRecipe;
 import com.voidnullvalue.parcelpal.worker.RefreshScheduler;
 
 import java.util.concurrent.ExecutorService;
@@ -50,26 +53,12 @@ public final class SettingsActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(v -> finish());
 
         SourcePreferences preferences = new SourcePreferences(this);
-        MaterialSwitch direct = findViewById(R.id.directSwitch);
-        MaterialSwitch packy = findViewById(R.id.packySwitch);
-        MaterialSwitch parcels = findViewById(R.id.parcelsSwitch);
-        MaterialSwitch postalNinja = findViewById(R.id.postalNinjaSwitch);
-        MaterialSwitch trackGlobal = findViewById(R.id.trackGlobalSwitch);
         MaterialSwitch background = findViewById(R.id.backgroundSwitch);
         MaterialSwitch deliveredOnly = findViewById(R.id.deliveredOnlySwitch);
-        direct.setChecked(preferences.directEnabled());
-        packy.setChecked(preferences.packyEnabled());
-        parcels.setChecked(preferences.parcelsEnabled());
-        postalNinja.setChecked(preferences.postalNinjaEnabled());
-        trackGlobal.setChecked(preferences.trackGlobalEnabled());
         background.setChecked(preferences.backgroundEnabled());
         deliveredOnly.setChecked(preferences.notifyDeliveredOnly());
 
-        direct.setOnCheckedChangeListener((v, checked) -> preferences.setDirectEnabled(checked));
-        packy.setOnCheckedChangeListener((v, checked) -> preferences.setPackyEnabled(checked));
-        parcels.setOnCheckedChangeListener((v, checked) -> preferences.setParcelsEnabled(checked));
-        postalNinja.setOnCheckedChangeListener((v, checked) -> preferences.setPostalNinjaEnabled(checked));
-        trackGlobal.setOnCheckedChangeListener((v, checked) -> preferences.setTrackGlobalEnabled(checked));
+        buildSourceSwitches(preferences);
         deliveredOnly.setOnCheckedChangeListener((v, checked) -> preferences.setNotifyDeliveredOnly(checked));
         background.setOnCheckedChangeListener((v, checked) -> {
             preferences.setBackgroundEnabled(checked);
@@ -85,6 +74,30 @@ public final class SettingsActivity extends AppCompatActivity {
     protected void onDestroy() {
         io.shutdownNow();
         super.onDestroy();
+    }
+
+    /**
+     * Builds one switch per fetchable source straight from {@code sources.json}, so shipping a new
+     * adapter never leaves it silently disabled behind a missing toggle.
+     */
+    private void buildSourceSwitches(SourcePreferences preferences) {
+        LinearLayout container = findViewById(R.id.sourcesContainer);
+        container.removeAllViews();
+        ShipmentRepository repository = new ShipmentRepository(this);
+        for (SourceRecipe recipe : repository.fetchableRecipes()) {
+            MaterialSwitch toggle = new MaterialSwitch(this);
+            toggle.setText(recipe.name + describe(recipe));
+            toggle.setChecked(preferences.sourceEnabled(recipe.id, recipe.kind));
+            toggle.setOnCheckedChangeListener((view, checked) -> io.execute(() ->
+                    repository.setSourceEnabled(this, recipe.id, checked)));
+            container.addView(toggle);
+        }
+    }
+
+    private static String describe(SourceRecipe recipe) {
+        String hosts = String.join(", ", recipe.hosts);
+        String role = recipe.carrierOwned() ? "carrier" : "aggregator";
+        return "\n" + role + " · " + hosts;
     }
 
     private void askExportPassword() {

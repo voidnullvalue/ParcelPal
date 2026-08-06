@@ -2,7 +2,10 @@ package com.voidnullvalue.parcelpal.util;
 
 import org.junit.Test;
 
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public final class CarrierDetectorTest {
@@ -32,5 +35,52 @@ public final class CarrierDetectorTest {
 
     @Test public void normalizesWhitespaceAndPunctuation() {
         assertEquals("1Z999AA10123456784", CarrierDetector.normalizeTrackingNumber("1Z 999-AA1 01 2345 6784"));
+    }
+
+    @Test public void reportsEveryCarrierAOneStNumberBelongsTo() {
+        List<String> candidates = CarrierDetector.detectAll("1ST06013631493");
+
+        assertEquals("1ST", candidates.get(0));
+        assertTrue("Cainiao also carries 1ST consignments", candidates.contains("Cainiao"));
+    }
+
+    @Test public void treatsChineseS10NumbersAsPostAndConsolidator() {
+        List<String> candidates = CarrierDetector.detectAll("LX123456789CN");
+
+        assertTrue(candidates.contains("International Post"));
+        assertTrue(candidates.contains("Cainiao"));
+    }
+
+    @Test public void keepsAnUnambiguousNumberToOneCarrier() {
+        assertEquals(1, CarrierDetector.detectAll("1Z999AA10123456784").size());
+        assertEquals("UPS", CarrierDetector.detectAll("1Z999AA10123456784").get(0));
+    }
+
+    @Test public void reportsAutoDetectForAnUnrecognizedFormat() {
+        List<String> candidates = CarrierDetector.detectAll("ZZZ7");
+
+        assertEquals(1, candidates.size());
+        assertEquals(CarrierDetector.AUTO_DETECT, candidates.get(0));
+    }
+
+    @Test public void neverReturnsAnEmptyCandidateList() {
+        assertFalse(CarrierDetector.detectAll(null).isEmpty());
+        assertFalse(CarrierDetector.detectAll("").isEmpty());
+    }
+
+    @Test public void keepsTheOldPrimaryDetectionForEveryKnownFormat() {
+        assertEquals("Canada Post", CarrierDetector.detect("AA123456789CA"));
+        assertEquals("Australia Post", CarrierDetector.detect("AA123456789AU"));
+        assertEquals("International Post", CarrierDetector.detect("AA123456789FR"));
+        assertEquals("UniUni", CarrierDetector.detect("UNI1234567"));
+        assertEquals("OnTrac", CarrierDetector.detect("D10012345678AB"));
+    }
+
+    /** An LP number matches LaserShip's shape, but it is the Cainiao format in practice. */
+    @Test public void offersCainiaoAlongsideLaserShipForLpNumbers() {
+        List<String> candidates = CarrierDetector.detectAll("LP12345678901234");
+
+        assertEquals("LaserShip", candidates.get(0));
+        assertTrue(candidates.contains("Cainiao"));
     }
 }

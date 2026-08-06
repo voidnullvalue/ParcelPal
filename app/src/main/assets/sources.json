@@ -1,85 +1,25 @@
 {
-  "schema": 2,
+  "schema": 3,
   "sources": [
     {
       "id": "usps",
       "name": "USPS",
-      "kind": "direct",
+      "kind": "browser",
       "carriers": ["USPS"],
       "hosts": ["tools.usps.com", "www.usps.com"],
+      "browserHosts": ["usps.com"],
+      "script": "usps_extract.js",
+      "trust": 100,
       "url": "https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
     },
     {
-      "id": "ups",
-      "name": "UPS",
-      "kind": "direct",
-      "carriers": ["UPS"],
-      "hosts": ["www.ups.com"],
-      "url": "https://www.ups.com/track?loc=en_US&tracknum={tracking}"
-    },
-    {
-      "id": "fedex",
-      "name": "FedEx",
-      "kind": "direct",
-      "carriers": ["FedEx"],
-      "hosts": ["www.fedex.com"],
-      "url": "https://www.fedex.com/fedextrack/?trknbr={tracking}"
-    },
-    {
-      "id": "dhl",
-      "name": "DHL",
-      "kind": "direct",
-      "carriers": ["DHL", "DHL Express", "DHL eCommerce"],
-      "hosts": ["www.dhl.com"],
-      "url": "https://www.dhl.com/us-en/home/tracking.html?tracking-id={tracking}"
-    },
-    {
-      "id": "ontrac",
-      "name": "OnTrac",
-      "kind": "direct",
-      "carriers": ["OnTrac", "LaserShip"],
-      "hosts": ["www.ontrac.com"],
-      "url": "https://www.ontrac.com/tracking/?number={tracking}"
-    },
-    {
-      "id": "canada_post",
-      "name": "Canada Post",
-      "kind": "direct",
-      "carriers": ["Canada Post"],
-      "hosts": ["www.canadapost-postescanada.ca"],
-      "url": "https://www.canadapost-postescanada.ca/track-reperage/en#/details/{tracking}"
-    },
-    {
-      "id": "royal_mail",
-      "name": "Royal Mail",
-      "kind": "direct",
-      "carriers": ["Royal Mail"],
-      "hosts": ["www.royalmail.com"],
-      "url": "https://www.royalmail.com/track-your-item#/tracking-results/{tracking}"
-    },
-    {
-      "id": "australia_post",
-      "name": "Australia Post",
-      "kind": "direct",
-      "carriers": ["Australia Post"],
-      "hosts": ["auspost.com.au"],
-      "url": "https://auspost.com.au/mypost/track/#/details/{tracking}"
-    },
-    {
-      "id": "yunexpress",
-      "name": "YunExpress",
-      "kind": "direct",
-      "carriers": ["YunExpress"],
-      "hosts": ["www.yuntrack.com"],
-      "url": "https://www.yuntrack.com/parcelTracking?id={tracking}"
-    },
-    {
-      "id": "uniuni",
-      "name": "UniUni",
-      "kind": "direct",
-      "carriers": ["UniUni"],
-      "hosts": ["www.uniuni.com"],
-      "url": "https://www.uniuni.com/tracking/?tracking_number={tracking}"
+      "id": "cainiao",
+      "name": "Cainiao",
+      "kind": "aggregator",
+      "carriers": ["Cainiao", "1ST", "YunExpress", "4PX", "UniUni", "International Post", "Auto-detect"],
+      "hosts": ["global.cainiao.com"],
+      "trust": 70,
+      "url": "https://global.cainiao.com/global/detail.json?mailNos={tracking}&lang=en-US&language=en-US"
     },
     {
       "id": "packy_1st",
@@ -87,6 +27,7 @@
       "kind": "aggregator",
       "carriers": ["1ST"],
       "hosts": ["packyapp.com"],
+      "trust": 60,
       "url": "https://packyapp.com/api/tracking/{tracking}"
     },
     {
@@ -94,21 +35,111 @@
       "name": "ParcelsApp",
       "kind": "aggregator",
       "hosts": ["parcelsapp.com"],
+      "trust": 50,
       "url": "https://parcelsapp.com/en/tracking/{tracking}"
     },
+
     {
-      "id": "postal_ninja",
+      "id": "ups_link",
+      "name": "UPS tracking page",
+      "kind": "link",
+      "carriers": ["UPS"],
+      "hosts": ["www.ups.com"],
+      "url": "https://www.ups.com/track?loc=en_US&tracknum={tracking}"
+    },
+    {
+      "id": "fedex_link",
+      "name": "FedEx tracking page",
+      "kind": "link",
+      "carriers": ["FedEx"],
+      "hosts": ["www.fedex.com"],
+      "url": "https://www.fedex.com/fedextrack/?trknbr={tracking}"
+    },
+    {
+      "id": "dhl_link",
+      "name": "DHL tracking page",
+      "kind": "link",
+      "carriers": ["DHL", "DHL Express", "DHL eCommerce"],
+      "hosts": ["www.dhl.com"],
+      "url": "https://www.dhl.com/us-en/home/tracking.html?tracking-id={tracking}"
+    },
+    {
+      "id": "ontrac_link",
+      "name": "OnTrac tracking page",
+      "kind": "link",
+      "carriers": ["OnTrac", "LaserShip"],
+      "hosts": ["www.ontrac.com"],
+      "url": "https://www.ontrac.com/tracking/?number={tracking}"
+    },
+    {
+      "id": "amazon_link",
+      "name": "Amazon shipment tracking",
+      "kind": "link",
+      "carriers": ["Amazon Logistics"],
+      "hosts": ["track.amazon.com"],
+      "url": "https://track.amazon.com/tracking/{tracking}"
+    },
+    {
+      "id": "canada_post_link",
+      "name": "Canada Post tracking page",
+      "kind": "link",
+      "carriers": ["Canada Post"],
+      "hosts": ["www.canadapost-postescanada.ca"],
+      "url": "https://www.canadapost-postescanada.ca/track-reperage/en#/details/{tracking}"
+    },
+    {
+      "id": "royal_mail_link",
+      "name": "Royal Mail tracking page",
+      "kind": "link",
+      "carriers": ["Royal Mail"],
+      "hosts": ["www.royalmail.com"],
+      "url": "https://www.royalmail.com/track-your-item#/tracking-results/{tracking}"
+    },
+    {
+      "id": "australia_post_link",
+      "name": "Australia Post tracking page",
+      "kind": "link",
+      "carriers": ["Australia Post"],
+      "hosts": ["auspost.com.au"],
+      "url": "https://auspost.com.au/mypost/track/#/details/{tracking}"
+    },
+    {
+      "id": "yunexpress_link",
+      "name": "YunExpress tracking page",
+      "kind": "link",
+      "carriers": ["YunExpress"],
+      "hosts": ["www.yuntrack.com"],
+      "url": "https://www.yuntrack.com/parcelTracking?id={tracking}"
+    },
+    {
+      "id": "uniuni_link",
+      "name": "UniUni tracking page",
+      "kind": "link",
+      "carriers": ["UniUni"],
+      "hosts": ["www.uniuni.com"],
+      "url": "https://www.uniuni.com/tracking/?tracking_number={tracking}"
+    },
+    {
+      "id": "cainiao_link",
+      "name": "Cainiao tracking page",
+      "kind": "link",
+      "carriers": ["Cainiao", "1ST", "4PX", "International Post"],
+      "hosts": ["global.cainiao.com"],
+      "url": "https://global.cainiao.com/newDetail.htm?mailNoList={tracking}"
+    },
+    {
+      "id": "postal_ninja_link",
       "name": "Postal Ninja",
-      "kind": "aggregator",
+      "kind": "link",
       "hosts": ["postal.ninja"],
       "url": "https://postal.ninja/en/track/{tracking}"
     },
     {
-      "id": "track_global",
+      "id": "track_global_link",
       "name": "Track.Global",
-      "kind": "aggregator",
+      "kind": "link",
       "hosts": ["track.global"],
-      "url": "https://track.global/en/track/{tracking}"
+      "url": "https://track.global/en/tracking/{tracking}"
     }
   ]
 }

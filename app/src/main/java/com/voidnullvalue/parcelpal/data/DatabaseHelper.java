@@ -19,7 +19,7 @@ import java.util.List;
 
 public final class DatabaseHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "parcel_pal.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     public DatabaseHelper(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
@@ -81,21 +81,30 @@ public final class DatabaseHelper extends SQLiteOpenHelper {
     }
 
     private static void createEvents(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE tracking_events (" +
+        createEventsTable(db, "tracking_events");
+        db.execSQL("CREATE INDEX idx_events_shipment_time ON tracking_events(shipment_id, event_time DESC, id DESC)");
+    }
+
+    /**
+     * Events are unique per source, not per shipment. Two sources reporting the same scan are two
+     * rows, so one source refreshing can never delete another source's history.
+     */
+    private static void createEventsTable(SQLiteDatabase db, String table) {
+        db.execSQL("CREATE TABLE " + table + " (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "shipment_id INTEGER NOT NULL," +
                 "tracking_number TEXT NOT NULL DEFAULT ''," +
                 "carrier_name TEXT NOT NULL DEFAULT ''," +
+                "source_id TEXT NOT NULL DEFAULT ''," +
                 "source_name TEXT NOT NULL DEFAULT ''," +
                 "event_time INTEGER NOT NULL DEFAULT 0," +
                 "location TEXT NOT NULL DEFAULT ''," +
                 "description TEXT NOT NULL," +
                 "raw_status TEXT NOT NULL DEFAULT ''," +
                 "event_key TEXT NOT NULL," +
-                "UNIQUE(shipment_id, event_key)," +
+                "UNIQUE(shipment_id, source_id, event_key)," +
                 "FOREIGN KEY(shipment_id) REFERENCES shipments(id) ON DELETE CASCADE" +
                 ")");
-        db.execSQL("CREATE INDEX idx_events_shipment_time ON tracking_events(shipment_id, event_time DESC, id DESC)");
     }
 
     @Override
@@ -107,6 +116,19 @@ public final class DatabaseHelper extends SQLiteOpenHelper {
             db.execSQL("ALTER TABLE tracking_events ADD COLUMN carrier_name TEXT NOT NULL DEFAULT ''");
             db.execSQL("ALTER TABLE tracking_events ADD COLUMN source_name TEXT NOT NULL DEFAULT ''");
             db.execSQL("UPDATE tracking_events SET tracking_number=(SELECT tracking_number FROM shipments WHERE shipments.id=tracking_events.shipment_id)");
+        }
+        if (oldVersion < 3) {
+            // The unique constraint has to change, which SQLite cannot do in place.
+            db.execSQL("DROP INDEX IF EXISTS idx_events_shipment_time");
+            createEventsTable(db, "tracking_events_v3");
+            db.execSQL("INSERT INTO tracking_events_v3 (" +
+                    "shipment_id, tracking_number, carrier_name, source_id, source_name," +
+                    "event_time, location, description, raw_status, event_key) " +
+                    "SELECT shipment_id, tracking_number, carrier_name, '', source_name," +
+                    "event_time, location, description, raw_status, event_key FROM tracking_events");
+            db.execSQL("DROP TABLE tracking_events");
+            db.execSQL("ALTER TABLE tracking_events_v3 RENAME TO tracking_events");
+            db.execSQL("CREATE INDEX idx_events_shipment_time ON tracking_events(shipment_id, event_time DESC, id DESC)");
         }
     }
 
@@ -252,18 +274,23 @@ public final class DatabaseHelper extends SQLiteOpenHelper {
         getWritableDatabase().update("tracking_legs", values, "id=?", ids(legId));
     }
 
-    public synchronized void replaceEventsForTracking(long shipmentId, String trackingNumber, String carrierName,
-                                                       String sourceName, List<TrackingEvent> events) {
+    /**
+     * Replaces one source's view of one tracking number. Other sources' rows for the same number
+     * are left alone so that a source returning less detail cannot erase a richer timeline.
+     */
+    public synchronized void replaceEventsForSource(long shipmentId, String trackingNumber, String sourceId,
+                                                    String carrierName, String sourceName, List<TrackingEvent> events) {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {
-            db.delete("tracking_events", "shipment_id=? AND tracking_number=?",
-                    new String[]{Long.toString(shipmentId), trackingNumber});
+            db.delete("tracking_events", "shipment_id=? AND tracking_number=? AND source_id=?",
+                    new String[]{Long.toString(shipmentId), trackingNumber, safe(sourceId)});
             for (TrackingEvent event : events) {
                 ContentValues values = new ContentValues();
                 values.put("shipment_id", shipmentId);
                 values.put("tracking_number", trackingNumber);
                 values.put("carrier_name", safeOr(event.carrierName, carrierName));
+                values.put("source_id", safe(sourceId));
                 values.put("source_name", safeOr(event.sourceName, sourceName));
                 values.put("event_time", event.eventTime);
                 values.put("location", safe(event.location));
@@ -290,6 +317,12 @@ public final class DatabaseHelper extends SQLiteOpenHelper {
 
     public synchronized void deleteShipment(long id) {
         getWritableDatabase().delete("shipments", "id=?", ids(id));
+    }
+
+    /** Drops every stored event contributed by one source, used when the user turns that source off. */
+    public synchronized int deleteEventsBySource(String sourceId) {
+        if (sourceId == null || sourceId.trim().isEmpty()) return 0;
+        return getWritableDatabase().delete("tracking_events", "source_id=?", new String[]{sourceId.trim()});
     }
 
     public synchronized JSONObject exportJson() throws JSONException {

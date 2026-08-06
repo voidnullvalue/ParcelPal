@@ -9,19 +9,35 @@ import com.voidnullvalue.parcelpal.model.TrackingEvent;
 import com.voidnullvalue.parcelpal.model.TrackingLeg;
 import com.voidnullvalue.parcelpal.model.TrackingResult;
 import com.voidnullvalue.parcelpal.model.TrackingTarget;
+import com.voidnullvalue.parcelpal.source.SourceRecipe;
 import com.voidnullvalue.parcelpal.source.SourceRegistry;
 import com.voidnullvalue.parcelpal.source.TrackingSource;
 import com.voidnullvalue.parcelpal.util.CarrierDetector;
+import com.voidnullvalue.parcelpal.util.TimelineMerger;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public final class ShipmentRepository {
     private static final int MAX_LEGS_PER_REFRESH = 6;
+    /** Concurrent source lookups. Enough to overlap slow sources without flooding a phone radio. */
+    private static final int MAX_PARALLEL_SOURCES = 3;
+    /** Ceiling for one target's whole fan-out, above the slowest single source. */
+    private static final long TARGET_TIMEOUT_SECONDS = 75;
 
     private final DatabaseHelper database;
     private final SourceRegistry sourceRegistry;
@@ -58,6 +74,24 @@ public final class ShipmentRepository {
     public JSONObject exportJson() throws JSONException { return database.exportJson(); }
     public DatabaseHelper.ImportSummary importJson(JSONObject json) throws JSONException { return database.importJson(json); }
 
+    /** The stored timeline with every source's duplicate reports of the same scan folded together. */
+    public List<TimelineMerger.MergedEvent> listMergedEvents(long shipmentId) {
+        return TimelineMerger.merge(database.listEvents(shipmentId), sourceRegistry.trustBySourceId());
+    }
+
+    /** Carrier pages ParcelPal cannot read itself, offered to the user as external links. */
+    public List<SourceRecipe> linksFor(Shipment shipment) {
+        if (shipment == null) return Collections.emptyList();
+        return sourceRegistry.linksFor(targetFor(shipment.trackingNumber, shipment.carrierHint));
+    }
+
+    public List<SourceRecipe> fetchableRecipes() { return sourceRegistry.fetchableRecipes(); }
+
+    public void setSourceEnabled(Context context, String sourceId, boolean enabled) {
+        new SourcePreferences(context).setSourceEnabled(sourceId, enabled);
+        if (!enabled) database.deleteEventsBySource(sourceId);
+    }
+
     public RefreshOutcome refresh(long shipmentId) {
         Shipment shipment = database.getShipment(shipmentId);
         if (shipment == null) return RefreshOutcome.failure("Package no longer exists");
@@ -72,37 +106,43 @@ public final class ShipmentRepository {
         List<String> errors = new ArrayList<>();
         List<TargetSuccess> successes = new ArrayList<>();
 
-        String rootCarrier = normalizedCarrier(shipment.trackingNumber, shipment.carrierHint);
-        if (isAutoCarrier(shipment.carrierHint) && !CarrierDetector.AUTO_DETECT.equalsIgnoreCase(rootCarrier)) {
-            database.updateShipmentCarrier(shipmentId, rootCarrier);
+        TrackingTarget rootTarget = targetFor(shipment.trackingNumber, shipment.carrierHint);
+        if (isAutoCarrier(shipment.carrierHint) && !CarrierDetector.AUTO_DETECT.equalsIgnoreCase(rootTarget.carrierHint)) {
+            database.updateShipmentCarrier(shipmentId, rootTarget.carrierHint);
         }
-        TrackingTarget rootTarget = new TrackingTarget(shipment.trackingNumber, rootCarrier);
-        TargetFetch rootFetch = fetchTarget(rootTarget, attempts, errors);
-        if (rootFetch.result != null) {
-            TrackingResult result = rootFetch.result;
-            database.replaceEventsForTracking(shipmentId, rootTarget.trackingNumber,
+
+        List<SourceOutcome> rootOutcomes = fetchTarget(rootTarget, attempts, errors);
+        Set<String> discoveredLegs = new LinkedHashSet<>();
+        for (SourceOutcome outcome : rootOutcomes) {
+            TrackingResult result = outcome.result;
+            database.replaceEventsForSource(shipmentId, rootTarget.trackingNumber, outcome.sourceId,
                     safeCarrier(result.carrierName, rootTarget.carrierHint), result.sourceName, result.events);
-            database.upsertDiscoveredLegs(shipmentId, shipment.trackingNumber, result.linkedTrackingNumbers);
-            successes.add(new TargetSuccess(rootTarget.trackingNumber, result));
+            discoveredLegs.addAll(result.linkedTrackingNumbers);
+            successes.add(new TargetSuccess(rootTarget.trackingNumber, outcome));
+        }
+        if (!discoveredLegs.isEmpty()) {
+            database.upsertDiscoveredLegs(shipmentId, shipment.trackingNumber, new ArrayList<>(discoveredLegs));
         }
 
         List<TrackingLeg> legs = database.listLegs(shipmentId);
         int processed = 0;
         for (TrackingLeg leg : legs) {
             if (processed++ >= MAX_LEGS_PER_REFRESH) break;
-            TrackingTarget target = new TrackingTarget(leg.trackingNumber,
-                    normalizedCarrier(leg.trackingNumber, leg.carrierHint));
-            TargetFetch fetch = fetchTarget(target, attempts, errors);
-            if (fetch.result == null) {
-                database.updateLegError(leg.id, fetch.error);
+            TrackingTarget target = targetFor(leg.trackingNumber, leg.carrierHint);
+            List<SourceOutcome> legOutcomes = fetchTarget(target, attempts, errors);
+            if (legOutcomes.isEmpty()) {
+                database.updateLegError(leg.id, "No enabled source returned data for " + leg.trackingNumber);
                 continue;
             }
-            TrackingResult result = fetch.result;
-            database.updateLegResult(leg.id, result.normalizedStatus, result.statusText,
-                    result.estimatedDelivery, result.sourceId, result.sourceName, "");
-            database.replaceEventsForTracking(shipmentId, leg.trackingNumber,
-                    safeCarrier(result.carrierName, target.carrierHint), result.sourceName, result.events);
-            successes.add(new TargetSuccess(leg.trackingNumber, result));
+            for (SourceOutcome outcome : legOutcomes) {
+                database.replaceEventsForSource(shipmentId, leg.trackingNumber, outcome.sourceId,
+                        safeCarrier(outcome.result.carrierName, target.carrierHint),
+                        outcome.result.sourceName, outcome.result.events);
+                successes.add(new TargetSuccess(leg.trackingNumber, outcome));
+            }
+            SourceOutcome best = bestOutcome(legOutcomes);
+            database.updateLegResult(leg.id, best.result.normalizedStatus, best.result.statusText,
+                    best.result.estimatedDelivery, best.result.sourceId, sourceLabel(legOutcomes), "");
         }
 
         if (successes.isEmpty()) {
@@ -112,11 +152,11 @@ public final class ShipmentRepository {
         }
 
         TargetSuccess current = chooseCurrent(successes);
-        TrackingResult result = current.result;
-        String sourceName = result.sourceName;
+        TrackingResult result = current.outcome.result;
+        String sourceName = sourceLabel(outcomesFor(successes, current.trackingNumber));
         if (!current.trackingNumber.equals(shipment.trackingNumber)) sourceName += " · linked leg";
         database.updateShipmentResult(shipmentId, result.normalizedStatus, result.statusText,
-                result.estimatedDelivery, result.sourceId, sourceName,
+                estimatedDelivery(successes, result), result.sourceId, sourceName,
                 errors.isEmpty() ? "" : String.join("\n", errors), String.join("\n", attempts));
 
         boolean changed = !safe(previousStatus).equals(safe(result.statusText)) ||
@@ -157,43 +197,142 @@ public final class ShipmentRepository {
         }
     }
 
-    private TargetFetch fetchTarget(TrackingTarget target, List<String> attempts, List<String> errors) {
+    /**
+     * Queries every enabled source for one tracking number at the same time and keeps all of them
+     * that answered.
+     *
+     * <p>A number can be live in several systems at once: the issuing carrier, the line-haul
+     * operator, and one or more aggregators. Stopping at the first answer hides the rest, so this
+     * collects every successful result and lets the caller merge them.
+     */
+    private List<SourceOutcome> fetchTarget(TrackingTarget target, List<String> attempts, List<String> errors) {
         List<TrackingSource> sources = sourceRegistry.sourcesFor(target);
         if (sources.isEmpty()) {
             String message = "No enabled source supports " + target.carrierHint;
             errors.add(message);
-            return TargetFetch.failure(message);
+            return Collections.emptyList();
         }
+
+        List<SourceOutcome> outcomes = new ArrayList<>();
         List<String> targetErrors = new ArrayList<>();
-        for (TrackingSource source : sources) {
-            String hosts = String.join(", ", source.allowedHosts());
-            try {
-                TrackingResult result = source.fetch(target);
-                attempts.add(source.displayName() + " [" + hosts + "] -> success");
-                return TargetFetch.success(result);
-            } catch (IOException | RuntimeException e) {
-                String message = safeMessage(e);
-                attempts.add(source.displayName() + " [" + hosts + "] -> failed: " + message);
-                targetErrors.add(source.displayName() + ": " + message);
+        ExecutorService pool = Executors.newFixedThreadPool(Math.min(MAX_PARALLEL_SOURCES, sources.size()));
+        try {
+            List<Future<TrackingResult>> futures = new ArrayList<>(sources.size());
+            for (TrackingSource source : sources) {
+                futures.add(pool.submit((Callable<TrackingResult>) () -> source.fetch(target)));
             }
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TARGET_TIMEOUT_SECONDS);
+            for (int index = 0; index < sources.size(); index++) {
+                TrackingSource source = sources.get(index);
+                String hosts = String.join(", ", source.allowedHosts());
+                try {
+                    long remaining = Math.max(0, deadline - System.nanoTime());
+                    TrackingResult result = futures.get(index).get(remaining, TimeUnit.NANOSECONDS);
+                    attempts.add(source.displayName() + " [" + hosts + "] -> success");
+                    outcomes.add(new SourceOutcome(source.id(), source.trust(), result));
+                } catch (TimeoutException timeout) {
+                    futures.get(index).cancel(true);
+                    String message = "timed out";
+                    attempts.add(source.displayName() + " [" + hosts + "] -> failed: " + message);
+                    targetErrors.add(source.displayName() + ": " + message);
+                } catch (ExecutionException failed) {
+                    String message = safeMessage(failed.getCause());
+                    attempts.add(source.displayName() + " [" + hosts + "] -> failed: " + message);
+                    targetErrors.add(source.displayName() + ": " + message);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    futures.get(index).cancel(true);
+                    targetErrors.add(source.displayName() + ": interrupted");
+                    break;
+                }
+            }
+        } finally {
+            pool.shutdownNow();
         }
-        String error = target.trackingNumber + ": " + String.join("; ", targetErrors);
-        errors.add(error);
-        return TargetFetch.failure(error);
+
+        if (!targetErrors.isEmpty()) {
+            errors.add(target.trackingNumber + ": " + String.join("; ", targetErrors));
+        }
+        outcomes.sort((first, second) -> Integer.compare(second.trust, first.trust));
+        return outcomes;
     }
 
+    /**
+     * Picks the result that describes the package right now.
+     *
+     * <p>Recency decides first, because a source that has seen a later scan knows more. Source
+     * trust breaks ties, and event count breaks the remaining ties, so a result with no usable
+     * timestamps can never displace one that has them purely by arriving later.
+     */
     private static TargetSuccess chooseCurrent(List<TargetSuccess> successes) {
         TargetSuccess chosen = successes.get(0);
-        long newest = chosen.result.newestEventTime();
         for (int i = 1; i < successes.size(); i++) {
-            TargetSuccess candidate = successes.get(i);
+            if (isBetter(successes.get(i), chosen)) chosen = successes.get(i);
+        }
+        return chosen;
+    }
+
+    private static boolean isBetter(TargetSuccess candidate, TargetSuccess incumbent) {
+        long candidateTime = candidate.outcome.result.newestEventTime();
+        long incumbentTime = incumbent.outcome.result.newestEventTime();
+        if (candidateTime != incumbentTime) return candidateTime > incumbentTime;
+        if (candidate.outcome.trust != incumbent.outcome.trust) {
+            return candidate.outcome.trust > incumbent.outcome.trust;
+        }
+        return candidate.outcome.result.events.size() > incumbent.outcome.result.events.size();
+    }
+
+    private static SourceOutcome bestOutcome(List<SourceOutcome> outcomes) {
+        SourceOutcome chosen = outcomes.get(0);
+        for (SourceOutcome candidate : outcomes) {
             long candidateTime = candidate.result.newestEventTime();
-            if (candidateTime > newest || candidateTime == newest) {
+            long chosenTime = chosen.result.newestEventTime();
+            if (candidateTime > chosenTime || (candidateTime == chosenTime && candidate.trust > chosen.trust)) {
                 chosen = candidate;
-                newest = candidateTime;
             }
         }
         return chosen;
+    }
+
+    private static List<SourceOutcome> outcomesFor(List<TargetSuccess> successes, String trackingNumber) {
+        List<SourceOutcome> outcomes = new ArrayList<>();
+        for (TargetSuccess success : successes) {
+            if (success.trackingNumber.equals(trackingNumber)) outcomes.add(success.outcome);
+        }
+        return outcomes;
+    }
+
+    /** Names every source that contributed, so the detail screen can show corroboration. */
+    private static String sourceLabel(List<SourceOutcome> outcomes) {
+        List<String> names = new ArrayList<>();
+        for (SourceOutcome outcome : outcomes) {
+            String name = safe(outcome.result.sourceName);
+            if (!name.isEmpty() && !names.contains(name)) names.add(name);
+        }
+        return names.isEmpty() ? "" : String.join(" + ", names);
+    }
+
+    /** Uses the chosen result's estimate, falling back to any other source that published one. */
+    private static String estimatedDelivery(List<TargetSuccess> successes, TrackingResult chosen) {
+        String preferred = safe(chosen.estimatedDelivery);
+        if (!preferred.isEmpty()) return preferred;
+        for (TargetSuccess success : successes) {
+            String estimate = safe(success.outcome.result.estimatedDelivery);
+            if (!estimate.isEmpty()) return estimate;
+        }
+        return "";
+    }
+
+    private static TrackingTarget targetFor(String trackingNumber, String carrierHint) {
+        if (isAutoCarrier(carrierHint)) {
+            return new TrackingTarget(trackingNumber, CarrierDetector.AUTO_DETECT);
+        }
+        List<String> candidates = new ArrayList<>();
+        candidates.add(carrierHint.trim());
+        for (String detected : CarrierDetector.detectAll(trackingNumber)) {
+            if (!CarrierDetector.AUTO_DETECT.equals(detected)) candidates.add(detected);
+        }
+        return new TrackingTarget(trackingNumber, carrierHint.trim(), candidates);
     }
 
     private static String normalizedCarrier(String trackingNumber, String requested) {
@@ -210,27 +349,33 @@ public final class ShipmentRepository {
         return parsed == null || parsed.trim().isEmpty() || "Auto-detect".equalsIgnoreCase(parsed) ? fallback : parsed;
     }
 
-    private static String safeMessage(Exception e) {
-        String message = e.getMessage();
-        return message == null || message.trim().isEmpty() ? e.getClass().getSimpleName() : message;
+    private static String safeMessage(Throwable error) {
+        if (error == null) return "failed";
+        String message = error.getMessage();
+        return message == null || message.trim().isEmpty() ? error.getClass().getSimpleName() : message;
     }
 
     private static String safe(String value) { return value == null ? "" : value.trim(); }
 
-    private static final class TargetFetch {
+    private static final class SourceOutcome {
+        final String sourceId;
+        final int trust;
         final TrackingResult result;
-        final String error;
-        private TargetFetch(TrackingResult result, String error) { this.result = result; this.error = error; }
-        static TargetFetch success(TrackingResult result) { return new TargetFetch(result, ""); }
-        static TargetFetch failure(String error) { return new TargetFetch(null, error); }
+
+        SourceOutcome(String sourceId, int trust, TrackingResult result) {
+            this.sourceId = sourceId;
+            this.trust = trust;
+            this.result = result;
+        }
     }
 
     private static final class TargetSuccess {
         final String trackingNumber;
-        final TrackingResult result;
-        TargetSuccess(String trackingNumber, TrackingResult result) {
+        final SourceOutcome outcome;
+
+        TargetSuccess(String trackingNumber, SourceOutcome outcome) {
             this.trackingNumber = trackingNumber;
-            this.result = result;
+            this.outcome = outcome;
         }
     }
 

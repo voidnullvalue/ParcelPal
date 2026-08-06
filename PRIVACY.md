@@ -17,11 +17,15 @@ Android cloud backup and device-transfer backup are disabled for the database an
 
 For each enabled source attempted, the source receives the queried tracking number, carrier hint when applicable, the phone's public IP address, request timing, and standard HTTP headers. ParcelPal never sends the package nickname or a batch list of all saved packages.
 
+Every enabled source that supports a number is queried during the same refresh, so a number that belongs to two carriers is disclosed to both of those sources rather than only the first one that answers. Each source can be turned off individually in Settings, which also deletes the events it has already contributed. A source is only offered a number whose format it supports.
+
+The Cainiao adapter makes one HTTPS JSON request to `global.cainiao.com` for the individual tracking number, without cookies or a session. It is offered only for the formats Cainiao carries, which are `1ST`, Cainiao's own `LP`/`LA` numbers, YunExpress, 4PX, UniUni, S10 numbers, and numbers whose format ParcelPal cannot identify at all. A recognized domestic number such as a USPS or UPS label is never sent to it.
+
 The Packy adapter is limited to detected 1ST Group tracking numbers. It makes one HTTPS JSON request to `packyapp.com` for the individual tracking number, does not enable cookies, and parses only the returned carrier status and timeline fields.
 
 The ParcelsApp adapter creates a first-party web session by requesting `parcelsapp.com`, then uses the returned CSRF token and session cookie to submit one structured tracking request to that same hostname. The cookie is held only in memory inside the lookup client and is discarded when the lookup finishes. ParcelPal does not retain it, expose it to other sources, or use it to identify the user across lookups.
 
-The USPS adapter uses Android System WebView because the first-party USPS tracking page requires browser-rendered JavaScript. It allows HTTPS requests only to `usps.com` and its subdomains. Third-party resources, including advertising and externally hosted fonts, are blocked. Third-party cookies, file access, content-provider access, mixed content, geolocation, popups, multiple windows, and JavaScript interfaces are disabled. After extraction, ParcelPal clears the first-party cookies, cache, and history and destroys the WebView. The browser is not shown to the user and its state is not reused.
+The browser adapter uses Android System WebView for carriers whose tracking page requires browser-rendered JavaScript; USPS is currently the only such source. It allows HTTPS requests only to the host suffixes that source declares, which for USPS is `usps.com` and its subdomains. Third-party resources, including advertising and externally hosted fonts, are blocked. Third-party cookies, file access, content-provider access, mixed content, geolocation, popups, multiple windows, and JavaScript interfaces are disabled. After extraction, ParcelPal clears the first-party cookies, cache, and history and destroys the WebView. The browser is not shown to the user and its state is not reused.
 
 ## Permissions
 
@@ -33,7 +37,9 @@ ParcelPal does not request contacts, location, email, phone, advertising ID, or 
 
 ## Excluded components
 
-The project intentionally contains no Firebase, Crashlytics, analytics, advertising SDK, remote configuration, general-purpose embedded browser, or ParcelPal backend. The sole WebView use is the constrained, offscreen USPS source described above.
+The project intentionally contains no Firebase, Crashlytics, analytics, advertising SDK, remote configuration, general-purpose embedded browser, or ParcelPal backend. The sole WebView use is the constrained, offscreen browser source described above, and an automated audit fails the build if any other file imports it.
+
+Carrier pages ParcelPal cannot read are opened in the device's own browser through a standard view intent. ParcelPal does not render them, and anything that happens in that browser is governed by the browser, not by ParcelPal.
 
 ## Residual risks
 

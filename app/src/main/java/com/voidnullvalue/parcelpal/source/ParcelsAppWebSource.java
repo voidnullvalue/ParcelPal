@@ -46,36 +46,51 @@ public final class ParcelsAppWebSource implements TrackingSource {
     @Override public String displayName() { return recipe.name; }
     @Override public String kind() { return recipe.kind; }
     @Override public Set<String> allowedHosts() { return recipe.hosts; }
-    @Override public boolean supports(TrackingTarget target) { return recipe.supportsCarrier(target.carrierHint); }
+    @Override public int trust() { return recipe.trust; }
+    @Override public boolean supports(TrackingTarget target) { return recipe.supportsAny(target.carrierCandidates); }
 
     @Override
     public TrackingResult fetch(TrackingTarget target) throws IOException {
-        String slug = ParcelsAppProtocol.carrierSlug(target.carrierHint);
+        List<String> slugs = candidateSlugs(target);
         ParcelsAppJsonParser.ResponseException lastResponseError = null;
 
         for (int sessionAttempt = 0; sessionAttempt < 2; sessionAttempt++) {
             Session session = bootstrapSession();
-            try {
-                TrackingResult result = requestTracking(session, target, slug);
-                requireUseful(result);
-                return result;
-            } catch (ParcelsAppJsonParser.ResponseException first) {
-                lastResponseError = first;
-                if ("NO_TRACKER".equals(first.code) && !slug.isEmpty()) {
-                    try {
-                        TrackingResult fallback = requestTracking(session, target, "");
-                        requireUseful(fallback);
-                        return fallback;
-                    } catch (ParcelsAppJsonParser.ResponseException second) {
-                        lastResponseError = second;
+            boolean sessionRejected = false;
+            for (String slug : slugs) {
+                try {
+                    TrackingResult result = requestTracking(session, target, slug);
+                    requireUseful(result);
+                    return result;
+                } catch (ParcelsAppJsonParser.ResponseException error) {
+                    lastResponseError = error;
+                    if ("RELOAD".equals(error.code)) {
+                        sessionRejected = true;
+                        break;
                     }
+                    // Another carrier guess may still resolve; anything else is terminal.
+                    if (!"NO_TRACKER".equals(error.code) && !"NO_DATA".equals(error.code)) throw error;
                 }
-                if (!"RELOAD".equals(lastResponseError.code) || sessionAttempt > 0) throw lastResponseError;
             }
+            if (!sessionRejected) break;
         }
 
         if (lastResponseError != null) throw lastResponseError;
         throw new IOException("ParcelsApp did not return tracking data");
+    }
+
+    /**
+     * ParcelsApp resolves a number faster when told which carrier to ask, so every detected carrier
+     * is offered in turn before falling back to its own auto-detection.
+     */
+    private static List<String> candidateSlugs(TrackingTarget target) {
+        List<String> slugs = new ArrayList<>();
+        for (String candidate : target.carrierCandidates) {
+            String slug = ParcelsAppProtocol.carrierSlug(candidate);
+            if (!slug.isEmpty() && !slugs.contains(slug)) slugs.add(slug);
+        }
+        slugs.add("");
+        return slugs;
     }
 
     private Session bootstrapSession() throws IOException {
@@ -163,8 +178,11 @@ public final class ParcelsAppWebSource implements TrackingSource {
         }
     }
 
-    private static void requireUseful(TrackingResult result) throws IOException {
-        if (!result.isUseful()) throw new IOException("ParcelsApp returned JSON without a credible tracking state");
+    private static void requireUseful(TrackingResult result) throws ParcelsAppJsonParser.ResponseException {
+        if (!result.isUseful()) {
+            throw new ParcelsAppJsonParser.ResponseException("NO_DATA",
+                    "ParcelsApp returned JSON without a credible tracking state");
+        }
     }
 
     private static void requireParcelsAppHost(HttpUrl url) throws IOException {

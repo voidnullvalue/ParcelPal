@@ -35,38 +35,62 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-public final class UspsBrowserSource implements TrackingSource {
+/**
+ * Loads a carrier's own tracking page in an offscreen, network-restricted browser.
+ *
+ * <p>Several carriers only publish tracking results through client-side rendering, so no plain HTTP
+ * fetch can see them. This source creates a throwaway {@link WebView} for one lookup, restricts it
+ * to the carrier's own hosts through {@link BrowserHostPolicy}, runs the source's extraction script
+ * until it reports a result, then destroys every trace of the session.
+ *
+ * <p>The source is configured entirely from a {@link SourceRecipe}: the recipe names the extraction
+ * script asset, the host suffixes the browser may reach, and the parser converts the script's JSON
+ * into the common model. No browser UI is ever shown and no state is reused between lookups.
+ */
+public final class BrowserSource implements TrackingSource {
     private static final long PAGE_TIMEOUT_MS = 45_000;
     private static final long CALL_TIMEOUT_MS = 52_000;
     private static final long POLL_INTERVAL_MS = 600;
 
     private final Context context;
     private final SourceRecipe recipe;
-    private final UspsDomParser parser;
+    private final BrowserExtractionParser parser;
+    private final BrowserHostPolicy hostPolicy;
     private final String extractionScript;
 
-    public UspsBrowserSource(Context context, SourceRecipe recipe, UspsDomParser parser) {
+    public BrowserSource(Context context, SourceRecipe recipe, BrowserExtractionParser parser) {
         this.context = context.getApplicationContext();
         this.recipe = recipe;
         this.parser = parser;
-        this.extractionScript = readAsset(this.context, "usps_extract.js");
+        this.hostPolicy = new BrowserHostPolicy(recipe.browserHosts);
+        if (recipe.script.isEmpty()) {
+            throw new IllegalStateException("Browser source " + recipe.id + " declares no extraction script");
+        }
+        if (recipe.browserHosts.isEmpty()) {
+            throw new IllegalStateException("Browser source " + recipe.id + " declares no browser hosts");
+        }
+        this.extractionScript = readAsset(this.context, recipe.script);
     }
 
     @Override public String id() { return recipe.id; }
     @Override public String displayName() { return recipe.name; }
     @Override public String kind() { return recipe.kind; }
     @Override public Set<String> allowedHosts() { return recipe.hosts; }
-    @Override public boolean supports(TrackingTarget target) { return recipe.supportsCarrier(target.carrierHint); }
+    @Override public int trust() { return recipe.trust; }
+    @Override public boolean supports(TrackingTarget target) { return recipe.supportsAny(target.carrierCandidates); }
 
     @Override
     public TrackingResult fetch(TrackingTarget target) throws IOException {
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            throw new IOException("USPS browser lookup cannot run on the UI thread");
+            throw new IOException(recipe.name + " browser lookup cannot run on the UI thread");
         }
         String encoded = URLEncoder.encode(target.trackingNumber, StandardCharsets.UTF_8.name())
                 .replace("+", "%20");
-        String url = recipe.urlTemplate.replace("{tracking}", encoded);
-        BrowserSession session = new BrowserSession(context, url, extractionScript);
+        String url = recipe.url(encoded);
+        if (!hostPolicy.isAllowed(url)) {
+            throw new IOException(recipe.name + " tracking URL is outside the approved browser hosts");
+        }
+        BrowserSession session = new BrowserSession(context, url, extractionScript, hostPolicy, recipe.name);
         new Handler(Looper.getMainLooper()).post(session::start);
 
         final boolean completed;
@@ -74,22 +98,20 @@ public final class UspsBrowserSource implements TrackingSource {
             completed = session.latch.await(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            session.cancel("USPS browser lookup was interrupted");
-            throw new IOException("USPS browser lookup was interrupted", interrupted);
+            session.cancel(recipe.name + " browser lookup was interrupted");
+            throw new IOException(recipe.name + " browser lookup was interrupted", interrupted);
         }
         if (!completed) {
-            session.cancel("USPS tracking page timed out");
-            throw new IOException("USPS tracking page timed out");
+            session.cancel(recipe.name + " tracking page timed out");
+            throw new IOException(recipe.name + " tracking page timed out");
         }
         String error = session.error.get();
         if (error != null) throw new IOException(error);
         String json = session.result.get();
-        if (json == null || json.trim().isEmpty()) throw new IOException("USPS browser returned no extraction data");
+        if (json == null || json.trim().isEmpty()) {
+            throw new IOException(recipe.name + " browser returned no extraction data");
+        }
         return parser.parse(json, target, recipe.id, recipe.name);
-    }
-
-    static boolean isAllowedUrl(String rawUrl) {
-        return UspsUrlPolicy.isAllowed(rawUrl);
     }
 
     private static String readAsset(Context context, String name) {
@@ -100,7 +122,7 @@ public final class UspsBrowserSource implements TrackingSource {
             while ((line = reader.readLine()) != null) output.append(line).append('\n');
             return output.toString();
         } catch (IOException error) {
-            throw new IllegalStateException("Could not load USPS extraction script", error);
+            throw new IllegalStateException("Could not load extraction script " + name, error);
         }
     }
 
@@ -117,6 +139,8 @@ public final class UspsBrowserSource implements TrackingSource {
         private final Context context;
         private final String url;
         private final String extractionScript;
+        private final BrowserHostPolicy hostPolicy;
+        private final String sourceName;
         private final Handler main = new Handler(Looper.getMainLooper());
         private final AtomicBoolean done = new AtomicBoolean(false);
         private long deadline;
@@ -126,10 +150,13 @@ public final class UspsBrowserSource implements TrackingSource {
         private boolean pollStarted;
         private String lastExtractionError = "";
 
-        BrowserSession(Context context, String url, String extractionScript) {
+        BrowserSession(Context context, String url, String extractionScript,
+                       BrowserHostPolicy hostPolicy, String sourceName) {
             this.context = context;
             this.url = url;
             this.extractionScript = extractionScript;
+            this.hostPolicy = hostPolicy;
+            this.sourceName = sourceName;
         }
 
         void start() {
@@ -146,7 +173,7 @@ public final class UspsBrowserSource implements TrackingSource {
                 main.postDelayed(() -> finishError(timeoutMessage()), PAGE_TIMEOUT_MS);
                 cookies.removeAllCookies(ignored -> createAndLoad());
             } catch (RuntimeException error) {
-                finishError("Could not initialize the USPS browser: " + safeMessage(error));
+                finishError("Could not initialize the " + sourceName + " browser: " + safeMessage(error));
             }
         }
 
@@ -173,7 +200,7 @@ public final class UspsBrowserSource implements TrackingSource {
                 webView.setWebViewClient(new LockedWebViewClient());
                 webView.loadUrl(url);
             } catch (RuntimeException error) {
-                finishError("Could not start the USPS browser: " + safeMessage(error));
+                finishError("Could not start the " + sourceName + " browser: " + safeMessage(error));
             }
         }
 
@@ -195,7 +222,7 @@ public final class UspsBrowserSource implements TrackingSource {
             }
             WebView current = webView;
             if (current == null) {
-                finishError("USPS browser closed before tracking data loaded");
+                finishError(sourceName + " browser closed before tracking data loaded");
                 return;
             }
             current.evaluateJavascript(extractionScript, raw -> {
@@ -217,8 +244,8 @@ public final class UspsBrowserSource implements TrackingSource {
         }
 
         private String timeoutMessage() {
-            if (lastExtractionError.isEmpty()) return "USPS tracking page timed out before status loaded";
-            return "USPS tracking page timed out: " + lastExtractionError;
+            if (lastExtractionError.isEmpty()) return sourceName + " tracking page timed out before status loaded";
+            return sourceName + " tracking page timed out: " + lastExtractionError;
         }
 
         private void finishSuccess(String json) {
@@ -255,18 +282,18 @@ public final class UspsBrowserSource implements TrackingSource {
         private final class LockedWebViewClient extends WebViewClient {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return !UspsUrlPolicy.isAllowed(request.getUrl().toString());
+                return !hostPolicy.isAllowed(request.getUrl().toString());
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public boolean shouldOverrideUrlLoading(WebView view, String targetUrl) {
-                return !UspsUrlPolicy.isAllowed(targetUrl);
+                return !hostPolicy.isAllowed(targetUrl);
             }
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                if (UspsUrlPolicy.isAllowed(request.getUrl().toString())) {
+                if (hostPolicy.isAllowed(request.getUrl().toString())) {
                     return super.shouldInterceptRequest(view, request);
                 }
                 return blockedResponse();
@@ -275,14 +302,14 @@ public final class UspsBrowserSource implements TrackingSource {
             @Override
             @SuppressWarnings("deprecation")
             public WebResourceResponse shouldInterceptRequest(WebView view, String targetUrl) {
-                if (UspsUrlPolicy.isAllowed(targetUrl)) return super.shouldInterceptRequest(view, targetUrl);
+                if (hostPolicy.isAllowed(targetUrl)) return super.shouldInterceptRequest(view, targetUrl);
                 return blockedResponse();
             }
 
             @Override
             public void onPageFinished(WebView view, String loadedUrl) {
-                if (!UspsUrlPolicy.isAllowed(loadedUrl)) {
-                    finishError("USPS redirected to an unapproved host");
+                if (!hostPolicy.isAllowed(loadedUrl)) {
+                    finishError(sourceName + " redirected to an unapproved host");
                     return;
                 }
                 beginPolling();
@@ -291,26 +318,26 @@ public final class UspsBrowserSource implements TrackingSource {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError webError) {
                 if (request.isForMainFrame()) {
-                    finishError("USPS browser network error: " + webError.getDescription());
+                    finishError(sourceName + " browser network error: " + webError.getDescription());
                 }
             }
 
             @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
                 if (request.isForMainFrame() && response.getStatusCode() >= 400) {
-                    finishError("USPS browser returned HTTP " + response.getStatusCode());
+                    finishError(sourceName + " browser returned HTTP " + response.getStatusCode());
                 }
             }
 
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError sslError) {
                 handler.cancel();
-                finishError("USPS browser rejected an invalid TLS certificate");
+                finishError(sourceName + " browser rejected an invalid TLS certificate");
             }
 
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-                finishError("USPS browser process stopped unexpectedly");
+                finishError(sourceName + " browser process stopped unexpectedly");
                 return true;
             }
         }

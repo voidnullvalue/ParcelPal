@@ -11,6 +11,8 @@ public interface TrackingSource {
     String displayName();
     String kind();
     Set<String> allowedHosts();
+    /** Higher scores win when two sources disagree about the current status. */
+    int trust();
     boolean supports(TrackingTarget target);
     TrackingResult fetch(TrackingTarget target) throws IOException;
 }
